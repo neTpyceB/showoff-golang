@@ -6,4 +6,6 @@ services:
     working_dir: /workspace
     volumes:
       - ./:/workspace
-    command: go run ./cmd/app
+    ports:
+      - "8080:8080"
+    command: air -c .air.toml

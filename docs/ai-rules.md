@@ -18,3 +18,8 @@ Additional repo-specific AI notes. Keep entries short.
 
 - Formatting check runs in container with `gofmt`.
 - Coverage is currently enforced to `100%`.
+
+## Public Docs Style
+
+- Do not mention training/lesson progression in public code or docs.
+- Write docs as production-project documentation.

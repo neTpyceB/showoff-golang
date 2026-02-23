@@ -1,11 +1,23 @@
 package main
 
 import (
-	"fmt"
+	"log"
+	"net/http"
 
-	"showoff-golang/internal/hello"
+	"showoff-golang/internal/httpapp"
 )
 
+const defaultAddr = ":8080"
+
+var listenAndServe = http.ListenAndServe
+var fatalf = log.Fatalf
+
+func run() error {
+	return listenAndServe(defaultAddr, httpapp.NewHandler())
+}
+
 func main() {
-	fmt.Println(hello.Message())
+	if err := run(); err != nil {
+		fatalf("server error: %v", err)
+	}
 }

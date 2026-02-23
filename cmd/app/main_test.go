@@ -1,34 +1,98 @@
 package main
 
 import (
-	"bytes"
-	"io"
-	"os"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
-func TestMainPrintsHelloMessage(t *testing.T) {
-	oldStdout := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("create pipe: %v", err)
+func TestRunStartsServerWithExpectedAddressAndHandler(t *testing.T) {
+	restoreGlobals(t)
+
+	listenAndServe = func(addr string, handler http.Handler) error {
+		if addr != defaultAddr {
+			t.Fatalf("addr = %q, want %q", addr, defaultAddr)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+
+		wantBody := "Hello from Go (running in Docker)!\n"
+		if rec.Body.String() != wantBody {
+			t.Fatalf("body = %q, want %q", rec.Body.String(), wantBody)
+		}
+
+		return nil
 	}
 
-	os.Stdout = w
+	if err := run(); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+}
+
+func TestMainCallsFatalfWhenRunFails(t *testing.T) {
+	restoreGlobals(t)
+
+	boom := errors.New("boom")
+	listenAndServe = func(string, http.Handler) error {
+		return boom
+	}
+
+	var (
+		called bool
+		msg    string
+	)
+	fatalf = func(format string, args ...any) {
+		called = true
+		msg = fmt.Sprintf(format, args...)
+	}
+
 	main()
-	os.Stdout = oldStdout
 
-	if err := w.Close(); err != nil {
-		t.Fatalf("close writer: %v", err)
+	if !called {
+		t.Fatal("expected fatalf to be called")
 	}
 
-	var out bytes.Buffer
-	if _, err := io.Copy(&out, r); err != nil {
-		t.Fatalf("read output: %v", err)
+	if !strings.Contains(msg, "server error: boom") {
+		t.Fatalf("fatal message = %q", msg)
+	}
+}
+
+func TestMainDoesNotCallFatalfWhenRunSucceeds(t *testing.T) {
+	restoreGlobals(t)
+
+	listenAndServe = func(string, http.Handler) error {
+		return nil
 	}
 
-	want := "Hello from Go (running in Docker)!\n"
-	if out.String() != want {
-		t.Fatalf("unexpected output: got %q want %q", out.String(), want)
+	called := false
+	fatalf = func(string, ...any) {
+		called = true
 	}
+
+	main()
+
+	if called {
+		t.Fatal("fatalf should not be called on successful run")
+	}
+}
+
+func restoreGlobals(t *testing.T) {
+	t.Helper()
+
+	oldListenAndServe := listenAndServe
+	oldFatalf := fatalf
+
+	t.Cleanup(func() {
+		listenAndServe = oldListenAndServe
+		fatalf = oldFatalf
+	})
 }
