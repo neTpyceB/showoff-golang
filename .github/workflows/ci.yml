@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker compose build app
+
+      - name: Check formatting (gofmt)
+        run: |
+          OUT=$(docker compose run --rm app sh -lc 'gofmt -l .')
+          if [ -n "$OUT" ]; then
+            echo "These files need formatting:"
+            echo "$OUT"
+            exit 1
+          fi
+
+      - name: Run tests with coverage
+        run: docker compose run --rm app go test ./... -covermode=count -coverprofile=coverage.out
+
+      - name: Require 100% coverage
+        run: |
+          docker compose run --rm app sh -lc '
+            COVER=$(go tool cover -func=coverage.out | awk "/^total:/ {print \$3}")
+            echo "Total coverage: $COVER"
+            test "$COVER" = "100.0%"
+          '
+
+      - name: Build binary
+        run: docker compose run --rm app go build -o ./bin/hello ./cmd/hello
