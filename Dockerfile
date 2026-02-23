@@ -7,4 +7,4 @@ RUN go mod download
 
 COPY . .
 
-CMD ["go", "run", "./cmd/hello"]
+CMD ["go", "run", "./cmd/app"]

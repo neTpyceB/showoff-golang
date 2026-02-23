@@ -6,4 +6,4 @@ services:
     working_dir: /workspace
     volumes:
       - ./:/workspace
-    command: go run ./cmd/hello
+    command: go run ./cmd/app
