@@ -36,4 +36,4 @@ jobs:
           '
 
       - name: Build binary
-        run: docker compose run --rm app go build -buildvcs=false -o ./bin/hello ./cmd/hello
+        run: docker compose run --rm app go build -buildvcs=false -o ./bin/app ./cmd/app
