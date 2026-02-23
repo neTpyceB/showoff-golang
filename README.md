@@ -45,7 +45,7 @@ docker compose run --rm app go tool cover -func=coverage.out
 ### Build binary
 
 ```bash
-docker compose run --rm app go build -o ./bin/hello ./cmd/hello
+docker compose run --rm app go build -buildvcs=false -o ./bin/hello ./cmd/hello
 ```
 
 Run the built binary inside the container (it is a Linux binary because it was built in Docker):
