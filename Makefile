@@ -1,4 +1,4 @@
-.PHONY: run test cover build fmt shell
+.PHONY: run test cover build build-all backupsum-build fmt shell
 
 run:
 	docker compose up --build app
@@ -12,6 +12,12 @@ cover:
 
 build:
 	docker compose run --rm app go build -buildvcs=false -o ./bin/app ./cmd/app
+
+build-all:
+	docker compose run --rm app sh -c 'go build -buildvcs=false ./cmd/...'
+
+backupsum-build:
+	docker compose run --rm app go build -buildvcs=false -o ./bin/backupsum ./cmd/backupsum
 
 fmt:
 	docker compose run --rm app gofmt -w .
