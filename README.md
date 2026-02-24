@@ -11,6 +11,7 @@ Docker-first Go project with a production-style repository layout.
 Current entrypoint:
 
 - `cmd/app` -> HTTP server
+- `cmd/backupsum` -> CLI backup + checksum tool
 
 Future binaries can be added without refactoring the current app, for example:
 
@@ -23,6 +24,7 @@ Future binaries can be added without refactoring the current app, for example:
 - Docker-only Go workflow (no local Go install required)
 - Hot reload inside Docker using `air`
 - Local HTTP server on `localhost:8080`
+- CLI file backup + SHA-256 checksum with JSON report
 - Tests + coverage in container
 - CI via GitHub Actions
 - `make` shortcuts for common commands
@@ -53,6 +55,16 @@ Hello from Go (running in Docker)!
 Edit any `.go` file and `air` will rebuild/restart the server automatically.
 
 ## Run Go Commands Inside Docker
+
+### Run `backupsum` CLI
+
+```bash
+docker compose run --rm app go run ./cmd/backupsum -src ./tmp/demo-src -dst ./tmp/demo-backup -report ./tmp/demo-report.json
+```
+
+Detailed usage:
+
+- [`docs/projects/backupsum.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/backupsum.md)
 
 ### Run app once (no hot reload)
 
@@ -112,6 +124,8 @@ make run
 make test
 make cover
 make build
+make build-all
+make backupsum-build
 make fmt
 make shell
 ```
@@ -130,4 +144,4 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) does:
 - `gofmt` check
 - tests with coverage
 - `100%` coverage enforcement
-- binary build (`-buildvcs=false`)
+- command package build (`-buildvcs=false`)

@@ -35,5 +35,5 @@ jobs:
             test "$COVER" = "100.0%"
           '
 
-      - name: Build binary
-        run: docker compose run --rm app go build -buildvcs=false -o ./bin/app ./cmd/app
+      - name: Build command packages
+        run: docker compose run --rm app sh -c 'go build -buildvcs=false ./cmd/...'
