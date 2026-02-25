@@ -12,6 +12,7 @@ Current entrypoint:
 
 - `cmd/app` -> HTTP server
 - `cmd/backupsum` -> CLI backup + checksum tool
+- `cmd/scrapexport` -> CLI web scraper + parser + exporter
 
 Future binaries can be added without refactoring the current app, for example:
 
@@ -25,6 +26,7 @@ Future binaries can be added without refactoring the current app, for example:
 - Hot reload inside Docker using `air`
 - Local HTTP server on `localhost:8080`
 - CLI file backup + SHA-256 checksum with JSON report
+- CLI web scraping with parsed fields + CSV/JSON export
 - Tests + coverage in container
 - CI via GitHub Actions
 - `make` shortcuts for common commands
@@ -65,6 +67,19 @@ docker compose run --rm app go run ./cmd/backupsum -src ./tmp/demo-src -dst ./tm
 Detailed usage:
 
 - [`docs/projects/backupsum.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/backupsum.md)
+
+### Run `scrapexport` CLI
+
+```bash
+docker compose run --rm app go run ./cmd/scrapexport \
+  -url https://example.com \
+  -json ./tmp/scrape-report.json \
+  -csv ./tmp/scrape-report.csv
+```
+
+Detailed usage:
+
+- [`docs/projects/scrapexport.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/scrapexport.md)
 
 ### Run app once (no hot reload)
 
@@ -126,6 +141,7 @@ make cover
 make build
 make build-all
 make backupsum-build
+make scrapexport-build
 make fmt
 make shell
 ```

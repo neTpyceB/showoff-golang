@@ -1,4 +1,4 @@
-.PHONY: run test cover build build-all backupsum-build fmt shell
+.PHONY: run test cover build build-all backupsum-build scrapexport-build fmt shell
 
 run:
 	docker compose up --build app
@@ -18,6 +18,9 @@ build-all:
 
 backupsum-build:
 	docker compose run --rm app go build -buildvcs=false -o ./bin/backupsum ./cmd/backupsum
+
+scrapexport-build:
+	docker compose run --rm app go build -buildvcs=false -o ./bin/scrapexport ./cmd/scrapexport
 
 fmt:
 	docker compose run --rm app gofmt -w .
