@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,17 +18,27 @@ func TestRunStartsServerWithExpectedAddressAndHandler(t *testing.T) {
 			t.Fatalf("addr = %q, want %q", addr, defaultAddr)
 		}
 
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 		}
+		if got := rec.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
+			t.Fatalf("content-type = %q", got)
+		}
 
-		wantBody := "Hello from Go (running in Docker)!\n"
-		if rec.Body.String() != wantBody {
-			t.Fatalf("body = %q, want %q", rec.Body.String(), wantBody)
+		var payload struct {
+			Data struct {
+				Status string `json:"status"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("decode json: %v", err)
+		}
+		if payload.Data.Status != "ok" {
+			t.Fatalf("health status = %q", payload.Data.Status)
 		}
 
 		return nil
