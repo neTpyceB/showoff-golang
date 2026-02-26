@@ -17,7 +17,7 @@ jobs:
 
       - name: Check formatting (gofmt)
         run: |
-          OUT=$(docker compose run --rm app sh -c 'gofmt -l .')
+          OUT=$(docker compose run --rm --no-deps app sh -c 'gofmt -l .')
           if [ -n "$OUT" ]; then
             echo "These files need formatting:"
             echo "$OUT"
@@ -36,4 +36,4 @@ jobs:
           '
 
       - name: Build command packages
-        run: docker compose run --rm app sh -c 'go build -buildvcs=false ./cmd/...'
+        run: docker compose run --rm --no-deps app sh -c 'go build -buildvcs=false ./cmd/...'

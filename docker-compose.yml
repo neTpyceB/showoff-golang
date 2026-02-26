@@ -1,11 +1,31 @@
 services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: showoff
+      POSTGRES_USER: showoff
+      POSTGRES_PASSWORD: showoff
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U showoff -d showoff"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
   app:
     build:
       context: .
       dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
     working_dir: /workspace
     volumes:
       - ./:/workspace
     ports:
       - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://showoff:showoff@db:5432/showoff?sslmode=disable
+      TEST_DATABASE_URL: postgres://showoff:showoff@db:5432/showoff?sslmode=disable
     command: air -c .air.toml
