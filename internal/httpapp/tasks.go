@@ -1,6 +1,7 @@
 package httpapp
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"slices"
@@ -11,10 +12,18 @@ import (
 )
 
 type taskAPI struct {
-	store *taskStore
+	repo taskRepository
 }
 
-type taskStore struct {
+type taskRepository interface {
+	List(context.Context) ([]task, error)
+	Create(context.Context, taskInput, time.Time) (task, error)
+	Get(context.Context, int64) (task, error)
+	Update(context.Context, int64, taskInput, time.Time) (task, error)
+	Delete(context.Context, int64) error
+}
+
+type memoryTaskRepository struct {
 	mu     sync.Mutex
 	nextID int64
 	tasks  map[int64]task
@@ -47,16 +56,28 @@ type taskResponse struct {
 var errTaskNotFound = errors.New("task not found")
 
 func newTaskAPI() *taskAPI {
+	return newTaskAPIWithRepository(newMemoryTaskRepository())
+}
+
+func newTaskAPIWithRepository(repo taskRepository) *taskAPI {
 	return &taskAPI{
-		store: &taskStore{
-			nextID: 1,
-			tasks:  make(map[int64]task),
-		},
+		repo: repo,
+	}
+}
+
+func newMemoryTaskRepository() *memoryTaskRepository {
+	return &memoryTaskRepository{
+		nextID: 1,
+		tasks:  make(map[int64]task),
 	}
 }
 
 func (a *taskAPI) listTasks(w http.ResponseWriter, r *http.Request) {
-	tasks := a.store.list()
+	tasks, err := a.repo.List(r.Context())
+	if err != nil {
+		respondInternalServerError(w, r)
+		return
+	}
 	items := make([]taskResponse, 0, len(tasks))
 	for _, t := range tasks {
 		items = append(items, toTaskResponse(t))
@@ -84,7 +105,11 @@ func (a *taskAPI) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created := a.store.create(in, nowFn().UTC())
+	created, err := a.repo.Create(r.Context(), in, nowFn().UTC())
+	if err != nil {
+		respondInternalServerError(w, r)
+		return
+	}
 	respondJSON(w, r, http.StatusCreated, map[string]any{"task": toTaskResponse(created)})
 }
 
@@ -93,9 +118,9 @@ func (a *taskAPI) getTask(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	t, err := a.store.get(id)
+	t, err := a.repo.Get(r.Context(), id)
 	if err != nil {
-		respondTaskNotFound(w, r)
+		respondTaskRepositoryError(w, r, err)
 		return
 	}
 	respondJSON(w, r, http.StatusOK, map[string]any{"task": toTaskResponse(t)})
@@ -126,9 +151,9 @@ func (a *taskAPI) updateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := a.store.update(id, in, nowFn().UTC())
+	updated, err := a.repo.Update(r.Context(), id, in, nowFn().UTC())
 	if err != nil {
-		respondTaskNotFound(w, r)
+		respondTaskRepositoryError(w, r, err)
 		return
 	}
 	respondJSON(w, r, http.StatusOK, map[string]any{"task": toTaskResponse(updated)})
@@ -139,8 +164,8 @@ func (a *taskAPI) deleteTask(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := a.store.delete(id); err != nil {
-		respondTaskNotFound(w, r)
+	if err := a.repo.Delete(r.Context(), id); err != nil {
+		respondTaskRepositoryError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -166,6 +191,22 @@ func respondTaskNotFound(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func respondInternalServerError(w http.ResponseWriter, r *http.Request) {
+	respondErrorJSON(w, r, http.StatusInternalServerError, apiError{
+		Code:    "internal_error",
+		Message: "internal server error",
+	})
+}
+
+func respondTaskRepositoryError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, errTaskNotFound) {
+		respondTaskNotFound(w, r)
+		return
+	}
+	loggerPrintfFn("task repository error path=%s err=%v", r.URL.Path, err)
+	respondInternalServerError(w, r)
+}
+
 func validateTaskInput(in taskInput) map[string]string {
 	fields := map[string]string{}
 	if in.Title == "" {
@@ -183,7 +224,7 @@ func validateTaskInput(in taskInput) map[string]string {
 	return fields
 }
 
-func (s *taskStore) list() []task {
+func (s *memoryTaskRepository) List(context.Context) ([]task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -192,10 +233,10 @@ func (s *taskStore) list() []task {
 		items = append(items, t)
 	}
 	slices.SortFunc(items, compareTaskByID)
-	return items
+	return items, nil
 }
 
-func (s *taskStore) create(in taskInput, ts time.Time) task {
+func (s *memoryTaskRepository) Create(_ context.Context, in taskInput, ts time.Time) (task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -209,10 +250,10 @@ func (s *taskStore) create(in taskInput, ts time.Time) task {
 	}
 	s.tasks[t.ID] = t
 	s.nextID++
-	return t
+	return t, nil
 }
 
-func (s *taskStore) get(id int64) (task, error) {
+func (s *memoryTaskRepository) Get(_ context.Context, id int64) (task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -223,7 +264,7 @@ func (s *taskStore) get(id int64) (task, error) {
 	return t, nil
 }
 
-func (s *taskStore) update(id int64, in taskInput, ts time.Time) (task, error) {
+func (s *memoryTaskRepository) Update(_ context.Context, id int64, in taskInput, ts time.Time) (task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -239,7 +280,7 @@ func (s *taskStore) update(id int64, in taskInput, ts time.Time) (task, error) {
 	return t, nil
 }
 
-func (s *taskStore) delete(id int64) error {
+func (s *memoryTaskRepository) Delete(_ context.Context, id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

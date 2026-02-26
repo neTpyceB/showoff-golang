@@ -28,6 +28,7 @@ Future binaries can be added without refactoring the current app, for example:
 - Local HTTP server on `localhost:8080`
 - `GET /hello` and `GET /health` JSON endpoints
 - In-memory Notes/Tasks REST API (CRUD)
+- Postgres-backed Notes/Tasks REST API (SQL CRUD + migrations)
 - HTTP middleware (request ID + request logging)
 - CLI file backup + SHA-256 checksum with JSON report
 - CLI web scraping with parsed fields + CSV/JSON export
@@ -39,6 +40,11 @@ Future binaries can be added without refactoring the current app, for example:
 
 - Docker Desktop (or Docker Engine + Compose plugin)
 - `make` (optional, for shortcuts)
+
+## Local Infrastructure
+
+- `app` -> Go app/test container
+- `db` -> PostgreSQL container (`postgres:18-alpine`)
 
 ## Start Development Server (Hot Reload)
 
@@ -58,6 +64,7 @@ Project doc:
 
 - [`docs/projects/http-hello-health.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/http-hello-health.md)
 - [`docs/projects/notes-tasks-api.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/notes-tasks-api.md)
+- [`docs/projects/notes-tasks-api-postgres.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/notes-tasks-api-postgres.md)
 
 Example `/hello` response:
 
@@ -74,6 +81,8 @@ curl -X POST http://localhost:8080/tasks \
   -H 'Content-Type: application/json' \
   -d '{"title":"Buy milk","note":"2 liters","done":false}'
 ```
+
+The app uses Postgres automatically when `DATABASE_URL` is present (configured in `docker-compose.yml`).
 
 ## Run Go Commands Inside Docker
 
@@ -111,6 +120,8 @@ docker compose run --rm --service-ports app go run ./cmd/app
 ```bash
 docker compose run --rm app go test ./...
 ```
+
+Includes Postgres integration tests (Compose starts the `db` service automatically for the `app` service).
 
 ### Run tests with coverage
 

@@ -218,33 +218,36 @@ func TestTaskHelpersAndStoreBranches(t *testing.T) {
 	})
 
 	t.Run("store get update delete not found", func(t *testing.T) {
-		s := &taskStore{nextID: 1, tasks: map[int64]task{}}
-		if _, err := s.get(1); !errors.Is(err, errTaskNotFound) {
+		s := &memoryTaskRepository{nextID: 1, tasks: map[int64]task{}}
+		if _, err := s.Get(context.Background(), 1); !errors.Is(err, errTaskNotFound) {
 			t.Fatalf("get err = %v", err)
 		}
-		if _, err := s.update(1, taskInput{Title: "x"}, time.Now()); !errors.Is(err, errTaskNotFound) {
+		if _, err := s.Update(context.Background(), 1, taskInput{Title: "x"}, time.Now()); !errors.Is(err, errTaskNotFound) {
 			t.Fatalf("update err = %v", err)
 		}
-		if err := s.delete(1); !errors.Is(err, errTaskNotFound) {
+		if err := s.Delete(context.Background(), 1); !errors.Is(err, errTaskNotFound) {
 			t.Fatalf("delete err = %v", err)
 		}
 	})
 
 	t.Run("store create update list success", func(t *testing.T) {
-		s := &taskStore{nextID: 1, tasks: map[int64]task{}}
-		t1 := s.create(taskInput{Title: "b"}, time.Date(2026, 2, 26, 10, 0, 0, 0, time.UTC))
-		t2 := s.create(taskInput{Title: "a"}, time.Date(2026, 2, 26, 10, 1, 0, 0, time.UTC))
+		s := &memoryTaskRepository{nextID: 1, tasks: map[int64]task{}}
+		t1, _ := s.Create(context.Background(), taskInput{Title: "b"}, time.Date(2026, 2, 26, 10, 0, 0, 0, time.UTC))
+		t2, _ := s.Create(context.Background(), taskInput{Title: "a"}, time.Date(2026, 2, 26, 10, 1, 0, 0, time.UTC))
 		if t1.ID != 1 || t2.ID != 2 {
 			t.Fatalf("ids = %d,%d", t1.ID, t2.ID)
 		}
-		updated, err := s.update(1, taskInput{Title: "bb", Note: "n", Done: true}, time.Date(2026, 2, 26, 10, 5, 0, 0, time.UTC))
+		updated, err := s.Update(context.Background(), 1, taskInput{Title: "bb", Note: "n", Done: true}, time.Date(2026, 2, 26, 10, 5, 0, 0, time.UTC))
 		if err != nil {
 			t.Fatalf("update error: %v", err)
 		}
 		if updated.CreatedAt.Format(time.RFC3339) != "2026-02-26T10:00:00Z" || updated.UpdatedAt.Format(time.RFC3339) != "2026-02-26T10:05:00Z" {
 			t.Fatalf("updated timestamps = %+v", updated)
 		}
-		items := s.list()
+		items, err := s.List(context.Background())
+		if err != nil {
+			t.Fatalf("list error: %v", err)
+		}
 		if len(items) != 2 || items[0].ID != 1 || items[1].ID != 2 {
 			t.Fatalf("list order = %+v", items)
 		}

@@ -60,7 +60,11 @@ var (
 )
 
 func NewHandler() http.Handler {
-	api := newTaskAPI()
+	return NewHandlerWithTaskRepository(newMemoryTaskRepository())
+}
+
+func NewHandlerWithTaskRepository(repo taskRepository) http.Handler {
+	api := newTaskAPIWithRepository(repo)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /hello", helloHandler)
