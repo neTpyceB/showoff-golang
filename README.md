@@ -11,6 +11,7 @@ Docker-first Go project with a production-style repository layout.
 Current entrypoint:
 
 - `cmd/app` -> HTTP server
+- `cmd/app` -> HTTP JSON service (`GET /hello`, `GET /health`)
 - `cmd/backupsum` -> CLI backup + checksum tool
 - `cmd/scrapexport` -> CLI web scraper + parser + exporter
 
@@ -25,6 +26,8 @@ Future binaries can be added without refactoring the current app, for example:
 - Docker-only Go workflow (no local Go install required)
 - Hot reload inside Docker using `air`
 - Local HTTP server on `localhost:8080`
+- `GET /hello` and `GET /health` JSON endpoints
+- HTTP middleware (request ID + request logging)
 - CLI file backup + SHA-256 checksum with JSON report
 - CLI web scraping with parsed fields + CSV/JSON export
 - Tests + coverage in container
@@ -45,13 +48,18 @@ docker compose up --build app
 Open:
 
 ```bash
-curl http://localhost:8080/
+curl http://localhost:8080/hello
+curl http://localhost:8080/health
 ```
 
-Expected response:
+Project doc:
+
+- [`docs/projects/http-hello-health.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/http-hello-health.md)
+
+Example `/hello` response:
 
 ```text
-Hello from Go (running in Docker)!
+{"data":{"message":"Hello from Go (running in Docker)!"},"meta":{"request_id":"req-000001"}}
 ```
 
 Edit any `.go` file and `air` will rebuild/restart the server automatically.
