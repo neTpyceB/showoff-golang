@@ -3,7 +3,9 @@ package httpapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"sync/atomic"
@@ -19,12 +21,19 @@ type contextKey string
 const requestIDContextKey contextKey = "request_id"
 
 type responseEnvelope struct {
-	Data any          `json:"data"`
-	Meta responseMeta `json:"meta"`
+	Data  any          `json:"data,omitempty"`
+	Error *apiError    `json:"error,omitempty"`
+	Meta  responseMeta `json:"meta"`
 }
 
 type responseMeta struct {
 	RequestID string `json:"request_id"`
+}
+
+type apiError struct {
+	Code    string            `json:"code"`
+	Message string            `json:"message"`
+	Fields  map[string]string `json:"fields,omitempty"`
 }
 
 type helloResponse struct {
@@ -51,9 +60,16 @@ var (
 )
 
 func NewHandler() http.Handler {
+	api := newTaskAPI()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /hello", helloHandler)
 	mux.HandleFunc("GET /health", healthHandler)
+	mux.HandleFunc("GET /tasks", api.listTasks)
+	mux.HandleFunc("POST /tasks", api.createTask)
+	mux.HandleFunc("GET /tasks/{id}", api.getTask)
+	mux.HandleFunc("PUT /tasks/{id}", api.updateTask)
+	mux.HandleFunc("DELETE /tasks/{id}", api.deleteTask)
 
 	return withRequestLogging(withRequestID(mux))
 }
@@ -84,6 +100,21 @@ func respondJSON(w http.ResponseWriter, r *http.Request, status int, data any) {
 
 	if err := jsonEncodeFn(w, payload); err != nil {
 		loggerPrintfFn("httpapp response encode error path=%s err=%v", r.URL.Path, err)
+	}
+}
+
+func respondErrorJSON(w http.ResponseWriter, r *http.Request, status int, errResp apiError) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+
+	reqID, _ := requestIDFromContext(r.Context())
+	payload := responseEnvelope{
+		Error: &errResp,
+		Meta:  responseMeta{RequestID: reqID},
+	}
+
+	if err := jsonEncodeFn(w, payload); err != nil {
+		loggerPrintfFn("httpapp error response encode error path=%s err=%v", r.URL.Path, err)
 	}
 }
 
@@ -121,6 +152,21 @@ func withRequestLogging(next http.Handler) http.Handler {
 func requestIDFromContext(ctx context.Context) (string, bool) {
 	value, ok := ctx.Value(requestIDContextKey).(string)
 	return value, ok
+}
+
+func decodeJSONBody(r *http.Request, dst any) error {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("request body must contain a single JSON object")
+		}
+		return errors.New("request body must contain a single JSON object")
+	}
+	return nil
 }
 
 type statusRecorder struct {
