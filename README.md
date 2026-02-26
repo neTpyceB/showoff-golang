@@ -11,7 +11,7 @@ Docker-first Go project with a production-style repository layout.
 Current entrypoint:
 
 - `cmd/app` -> HTTP server
-- `cmd/app` -> HTTP JSON service (`GET /hello`, `GET /health`)
+- `cmd/app` -> HTTP JSON service (`/hello`, `/health`, `/tasks`)
 - `cmd/backupsum` -> CLI backup + checksum tool
 - `cmd/scrapexport` -> CLI web scraper + parser + exporter
 
@@ -27,6 +27,7 @@ Future binaries can be added without refactoring the current app, for example:
 - Hot reload inside Docker using `air`
 - Local HTTP server on `localhost:8080`
 - `GET /hello` and `GET /health` JSON endpoints
+- In-memory Notes/Tasks REST API (CRUD)
 - HTTP middleware (request ID + request logging)
 - CLI file backup + SHA-256 checksum with JSON report
 - CLI web scraping with parsed fields + CSV/JSON export
@@ -50,11 +51,13 @@ Open:
 ```bash
 curl http://localhost:8080/hello
 curl http://localhost:8080/health
+curl http://localhost:8080/tasks
 ```
 
 Project doc:
 
 - [`docs/projects/http-hello-health.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/http-hello-health.md)
+- [`docs/projects/notes-tasks-api.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/notes-tasks-api.md)
 
 Example `/hello` response:
 
@@ -63,6 +66,14 @@ Example `/hello` response:
 ```
 
 Edit any `.go` file and `air` will rebuild/restart the server automatically.
+
+Create a task example:
+
+```bash
+curl -X POST http://localhost:8080/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Buy milk","note":"2 liters","done":false}'
+```
 
 ## Run Go Commands Inside Docker
 
