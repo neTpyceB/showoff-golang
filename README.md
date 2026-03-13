@@ -30,6 +30,7 @@ Future binaries can be added without refactoring the current app, for example:
 - Postgres-backed Notes/Tasks REST API (SQL CRUD + migrations)
 - URL shortener API + redirect endpoint
 - Graceful shutdown on `SIGINT`/`SIGTERM` + request timeout middleware baseline
+- In-process background worker (pool + retries + dead queue + scheduler)
 - HTTP middleware (request ID + request logging)
 - CLI file backup + SHA-256 checksum with JSON report
 - CLI web scraping with parsed fields + CSV/JSON export
@@ -72,6 +73,7 @@ Project doc:
 - [`docs/projects/notes-tasks-api-postgres.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/notes-tasks-api-postgres.md)
 - [`docs/projects/url-shortener.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/url-shortener.md)
 - [`docs/projects/graceful-shutdown-timeouts.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/graceful-shutdown-timeouts.md)
+- [`docs/projects/in-process-job-worker.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/in-process-job-worker.md)
 
 Example `/hello` response:
 
