@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+
+	miniredis "github.com/alicebob/miniredis/v2"
 )
 
 func TestRunReturnsListenError(t *testing.T) {
@@ -156,6 +160,36 @@ func TestRunReturnsPostgresHandlerFactoryError(t *testing.T) {
 
 	if err := run(); err == nil || !strings.Contains(err.Error(), "db init failed") {
 		t.Fatalf("run() err = %v", err)
+	}
+}
+
+func TestRunMetricsRoutesWithRedisStore(t *testing.T) {
+	restoreGlobals(t)
+	mr := miniredis.RunT(t)
+	t.Setenv("METRICS_REDIS_ADDR", mr.Addr())
+
+	serverListenAndServe = func(s *http.Server) error {
+		postRec := httptest.NewRecorder()
+		postReq := httptest.NewRequest(http.MethodPost, "/metrics/events", bytes.NewBufferString(`{"source":"http","name":"GET:/x","status":"200","duration_ms":3}`))
+		s.Handler.ServeHTTP(postRec, postReq)
+		if postRec.Code != http.StatusAccepted {
+			t.Fatalf("post status = %d", postRec.Code)
+		}
+
+		getRec := httptest.NewRecorder()
+		getReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+		s.Handler.ServeHTTP(getRec, getReq)
+		if getRec.Code != http.StatusOK {
+			t.Fatalf("get status = %d", getRec.Code)
+		}
+		return nil
+	}
+	signalNotifyContext = func(ctx context.Context, _ ...os.Signal) (context.Context, context.CancelFunc) {
+		return context.WithCancel(ctx)
+	}
+
+	if err := run(); err != nil {
+		t.Fatalf("run() error = %v", err)
 	}
 }
 

@@ -49,6 +49,23 @@ func TestNewPostgresHandlerError(t *testing.T) {
 }
 
 func TestRunMigrationsBranchesWithSQLMock(t *testing.T) {
+	t.Run("advisory lock error", func(t *testing.T) {
+		restorePostgresRepoFns(t)
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock.New: %v", err)
+		}
+		defer db.Close()
+
+		repo := &postgresTaskRepository{db: db}
+		mock.ExpectExec("SELECT pg_advisory_lock").WithArgs(migrationsAdvisoryLockKey).WillReturnError(errors.New("lock failed"))
+
+		err = repo.runMigrations(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "acquire migrations advisory lock") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
 	t.Run("skip dir and empty file", func(t *testing.T) {
 		restorePostgresRepoFns(t)
 		db, mock, err := sqlmock.New()
@@ -58,6 +75,7 @@ func TestRunMigrationsBranchesWithSQLMock(t *testing.T) {
 		defer db.Close()
 
 		repo := &postgresTaskRepository{db: db}
+		expectMigrationLock(mock)
 		readDirMigrationsFn = func(fs.FS, string) ([]fs.DirEntry, error) {
 			return []fs.DirEntry{
 				fakeMigrationDirEntry{name: "subdir", isDir: true},
@@ -76,13 +94,14 @@ func TestRunMigrationsBranchesWithSQLMock(t *testing.T) {
 
 	t.Run("read file error", func(t *testing.T) {
 		restorePostgresRepoFns(t)
-		db, _, err := sqlmock.New()
+		db, mock, err := sqlmock.New()
 		if err != nil {
 			t.Fatalf("sqlmock.New: %v", err)
 		}
 		defer db.Close()
 
 		repo := &postgresTaskRepository{db: db}
+		expectMigrationLock(mock)
 		readDirMigrationsFn = func(fs.FS, string) ([]fs.DirEntry, error) {
 			return []fs.DirEntry{fakeMigrationDirEntry{name: "001.sql"}}, nil
 		}
@@ -103,6 +122,7 @@ func TestRunMigrationsBranchesWithSQLMock(t *testing.T) {
 		defer db.Close()
 
 		repo := &postgresTaskRepository{db: db}
+		expectMigrationLock(mock)
 		readDirMigrationsFn = func(fs.FS, string) ([]fs.DirEntry, error) {
 			return []fs.DirEntry{fakeMigrationDirEntry{name: "001.sql"}}, nil
 		}
@@ -231,4 +251,9 @@ func mustParseRFC3339(t *testing.T, value string) time.Time {
 		t.Fatalf("time.Parse error: %v", err)
 	}
 	return ts
+}
+
+func expectMigrationLock(mock sqlmock.Sqlmock) {
+	mock.ExpectExec("SELECT pg_advisory_lock").WithArgs(migrationsAdvisoryLockKey).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock").WithArgs(migrationsAdvisoryLockKey).WillReturnResult(sqlmock.NewResult(0, 1))
 }
