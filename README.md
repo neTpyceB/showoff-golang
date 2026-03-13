@@ -31,6 +31,7 @@ Future binaries can be added without refactoring the current app, for example:
 - URL shortener API + redirect endpoint
 - Graceful shutdown on `SIGINT`/`SIGTERM` + request timeout middleware baseline
 - In-process background worker (pool + retries + dead queue + scheduler)
+- Redis-backed queue worker (list + stream, blocking consume, safe shutdown)
 - HTTP middleware (request ID + request logging)
 - CLI file backup + SHA-256 checksum with JSON report
 - CLI web scraping with parsed fields + CSV/JSON export
@@ -74,6 +75,7 @@ Project doc:
 - [`docs/projects/url-shortener.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/url-shortener.md)
 - [`docs/projects/graceful-shutdown-timeouts.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/graceful-shutdown-timeouts.md)
 - [`docs/projects/in-process-job-worker.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/in-process-job-worker.md)
+- [`docs/projects/redis-queue-worker.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/redis-queue-worker.md)
 
 Example `/hello` response:
 
