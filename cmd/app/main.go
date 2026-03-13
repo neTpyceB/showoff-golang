@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"showoff-golang/internal/httpapp"
+	"showoff-golang/internal/metricscollector"
 )
 
 const defaultAddr = ":8080"
@@ -24,6 +25,7 @@ var serverShutdown = func(s *http.Server, ctx context.Context) error { return s.
 
 func run() error {
 	handler := httpapp.NewHandler()
+	var closeMetricsStoreFn func() error
 
 	if databaseURL := os.Getenv("DATABASE_URL"); databaseURL != "" {
 		dbHandler, closeFn, err := newPostgresHandler(context.Background(), databaseURL)
@@ -34,9 +36,39 @@ func run() error {
 		handler = dbHandler
 	}
 
+	var metricsStore metricscollector.Store
+	if redisAddr := os.Getenv("METRICS_REDIS_ADDR"); redisAddr != "" {
+		redisStore := metricscollector.NewRedisStore(redisAddr, os.Getenv("METRICS_REDIS_PASSWORD"), 0)
+		metricsStore = redisStore
+		closeMetricsStoreFn = redisStore.Close
+	} else {
+		metricsStore = metricscollector.NewMemoryStore()
+	}
+	if closeMetricsStoreFn != nil {
+		defer func() { _ = closeMetricsStoreFn() }()
+	}
+
+	collector := metricscollector.New(metricscollector.Config{
+		Workers:       2,
+		QueueSize:     1024,
+		FlushInterval: 1 * time.Second,
+	}, metricsStore)
+	collector.Start(context.Background())
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = collector.Stop(stopCtx)
+	}()
+
+	rootMux := http.NewServeMux()
+	metricsHandler := metricscollector.NewHandler(collector)
+	rootMux.Handle("/", collector.Middleware(handler))
+	rootMux.Handle("/metrics", metricsHandler)
+	rootMux.Handle("/metrics/", metricsHandler)
+
 	server := &http.Server{
 		Addr:              defaultAddr,
-		Handler:           handler,
+		Handler:           rootMux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
