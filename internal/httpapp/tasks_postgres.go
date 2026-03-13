@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -32,7 +34,7 @@ func NewPostgresHandler(ctx context.Context, databaseURL string) (http.Handler, 
 	if err != nil {
 		return nil, nil, err
 	}
-	return NewHandlerWithTaskRepository(repo), repo.Close, nil
+	return NewHandlerWithRepositories(repo, repo), repo.Close, nil
 }
 
 func NewPostgresTaskRepository(ctx context.Context, databaseURL string) (*postgresTaskRepository, error) {
@@ -178,4 +180,39 @@ func (r *postgresTaskRepository) Delete(ctx context.Context, id int64) error {
 		return errTaskNotFound
 	}
 	return nil
+}
+
+func (r *postgresTaskRepository) CreateShortURL(ctx context.Context, in createShortURLRepositoryInput, ts time.Time) (shortURL, error) {
+	var out shortURL
+	err := r.db.QueryRowContext(ctx, `
+		INSERT INTO short_urls (code, target_url, created_at)
+		VALUES ($1, $2, $3)
+		RETURNING id, code, target_url, created_at
+	`, in.Code, in.TargetURL, ts).Scan(
+		&out.ID, &out.Code, &out.TargetURL, &out.CreatedAt,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return shortURL{}, errShortURLCodeConflict
+		}
+		return shortURL{}, fmt.Errorf("insert short url: %w", err)
+	}
+	return out, nil
+}
+
+func (r *postgresTaskRepository) GetShortURLByCode(ctx context.Context, code string) (shortURL, error) {
+	var out shortURL
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, code, target_url, created_at
+		FROM short_urls
+		WHERE code = $1
+	`, code).Scan(&out.ID, &out.Code, &out.TargetURL, &out.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return shortURL{}, errShortURLNotFound
+		}
+		return shortURL{}, fmt.Errorf("select short url: %w", err)
+	}
+	return out, nil
 }

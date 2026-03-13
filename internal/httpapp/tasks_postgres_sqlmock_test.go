@@ -8,8 +8,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestNewPostgresHandlerSuccessAndClose(t *testing.T) {
@@ -166,6 +168,45 @@ func TestPostgresListAndDeleteErrorBranchesWithSQLMock(t *testing.T) {
 			t.Fatalf("err = %v", err)
 		}
 	})
+
+	t.Run("insert short url unique violation", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock.New: %v", err)
+		}
+		defer db.Close()
+		repo := &postgresTaskRepository{db: db}
+
+		mock.ExpectQuery("INSERT INTO short_urls").
+			WithArgs("dup1", "https://example.com", sqlmock.AnyArg()).
+			WillReturnError(&pgconn.PgError{Code: "23505"})
+
+		_, err = repo.CreateShortURL(context.Background(), createShortURLRepositoryInput{
+			Code:      "dup1",
+			TargetURL: "https://example.com",
+		}, mustParseRFC3339(t, "2026-03-13T10:00:00Z"))
+		if !errors.Is(err, errShortURLCodeConflict) {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
+	t.Run("get short url not found", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock.New: %v", err)
+		}
+		defer db.Close()
+		repo := &postgresTaskRepository{db: db}
+
+		mock.ExpectQuery("SELECT id, code, target_url, created_at").
+			WithArgs("missing").
+			WillReturnError(sql.ErrNoRows)
+
+		_, err = repo.GetShortURLByCode(context.Background(), "missing")
+		if !errors.Is(err, errShortURLNotFound) {
+			t.Fatalf("err = %v", err)
+		}
+	})
 }
 
 type fakeMigrationDirEntry struct {
@@ -182,3 +223,12 @@ func (f fakeMigrationDirEntry) Type() fs.FileMode {
 	return 0
 }
 func (f fakeMigrationDirEntry) Info() (fs.FileInfo, error) { return nil, errors.New("not implemented") }
+
+func mustParseRFC3339(t *testing.T, value string) time.Time {
+	t.Helper()
+	ts, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		t.Fatalf("time.Parse error: %v", err)
+	}
+	return ts
+}

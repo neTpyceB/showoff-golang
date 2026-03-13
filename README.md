@@ -10,8 +10,7 @@ Docker-first Go project with a production-style repository layout.
 
 Current entrypoint:
 
-- `cmd/app` -> HTTP server
-- `cmd/app` -> HTTP JSON service (`/hello`, `/health`, `/tasks`)
+- `cmd/app` -> HTTP JSON service (`/hello`, `/health`, `/tasks`, `/short-urls`, `/{code}`)
 - `cmd/backupsum` -> CLI backup + checksum tool
 - `cmd/scrapexport` -> CLI web scraper + parser + exporter
 
@@ -29,6 +28,7 @@ Future binaries can be added without refactoring the current app, for example:
 - `GET /hello` and `GET /health` JSON endpoints
 - In-memory Notes/Tasks REST API (CRUD)
 - Postgres-backed Notes/Tasks REST API (SQL CRUD + migrations)
+- URL shortener API + redirect endpoint
 - HTTP middleware (request ID + request logging)
 - CLI file backup + SHA-256 checksum with JSON report
 - CLI web scraping with parsed fields + CSV/JSON export
@@ -58,6 +58,10 @@ Open:
 curl http://localhost:8080/hello
 curl http://localhost:8080/health
 curl http://localhost:8080/tasks
+curl -X POST http://localhost:8080/short-urls \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://go.dev/","code":"go-docs"}'
+curl -i http://localhost:8080/go-docs
 ```
 
 Project doc:
@@ -65,6 +69,7 @@ Project doc:
 - [`docs/projects/http-hello-health.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/http-hello-health.md)
 - [`docs/projects/notes-tasks-api.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/notes-tasks-api.md)
 - [`docs/projects/notes-tasks-api-postgres.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/notes-tasks-api-postgres.md)
+- [`docs/projects/url-shortener.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/url-shortener.md)
 
 Example `/hello` response:
 
