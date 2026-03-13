@@ -22,10 +22,12 @@ func TestTaskHandlersRepositoryInternalErrors(t *testing.T) {
 
 	repo := failingTaskRepository{err: errors.New("db failed")}
 	h := NewHandlerWithTaskRepository(repo)
+	token := authTokenForRole(t, h, "user")
 
 	t.Run("list tasks internal error", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/tasks", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusInternalServerError {
 			t.Fatalf("status = %d", rec.Code)
@@ -37,6 +39,7 @@ func TestTaskHandlersRepositoryInternalErrors(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"title":"x","note":"","done":false}`))
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusInternalServerError {
 			t.Fatalf("status = %d", rec.Code)

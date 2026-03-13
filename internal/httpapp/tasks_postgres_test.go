@@ -44,12 +44,12 @@ func TestPostgresTaskRepositoryIntegrationCRUDAndMigrations(t *testing.T) {
 	}
 
 	ts1 := time.Date(2026, 2, 26, 12, 0, 0, 0, time.UTC)
-	created1, err := repo.Create(ctx, taskInput{Title: "Task 1", Note: "n1", Done: false}, ts1)
+	created1, err := repo.Create(ctx, taskInput{OwnerUserID: 1, Title: "Task 1", Note: "n1", Done: false}, ts1)
 	if err != nil {
 		t.Fatalf("Create1 error: %v", err)
 	}
 	ts2 := ts1.Add(time.Minute)
-	created2, err := repo.Create(ctx, taskInput{Title: "Task 2", Note: "n2", Done: true}, ts2)
+	created2, err := repo.Create(ctx, taskInput{OwnerUserID: 1, Title: "Task 2", Note: "n2", Done: true}, ts2)
 	if err != nil {
 		t.Fatalf("Create2 error: %v", err)
 	}
@@ -63,6 +63,9 @@ func TestPostgresTaskRepositoryIntegrationCRUDAndMigrations(t *testing.T) {
 	}
 	if got1.Title != "Task 1" || got1.Note != "n1" || got1.Done {
 		t.Fatalf("unexpected task: %+v", got1)
+	}
+	if got1.OwnerUserID != 1 {
+		t.Fatalf("unexpected owner: %+v", got1)
 	}
 
 	all, err := repo.List(ctx)
@@ -191,7 +194,7 @@ func TestPostgresTaskRepositoryMethodErrorBranches(t *testing.T) {
 	if _, err := repo.List(ctx); err == nil || !strings.Contains(err.Error(), "query tasks") {
 		t.Fatalf("List err = %v", err)
 	}
-	if _, err := repo.Create(ctx, taskInput{Title: "x"}, time.Now()); err == nil || !strings.Contains(err.Error(), "insert task") {
+	if _, err := repo.Create(ctx, taskInput{OwnerUserID: 1, Title: "x"}, time.Now()); err == nil || !strings.Contains(err.Error(), "insert task") {
 		t.Fatalf("Create err = %v", err)
 	}
 	if _, err := repo.Get(ctx, 1); err == nil || !strings.Contains(err.Error(), "select task") {

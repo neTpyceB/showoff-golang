@@ -145,9 +145,9 @@ func TestPostgresListAndDeleteErrorBranchesWithSQLMock(t *testing.T) {
 		defer db.Close()
 		repo := &postgresTaskRepository{db: db}
 
-		rows := sqlmock.NewRows([]string{"id", "title", "note", "done", "created_at", "updated_at"}).
-			AddRow("bad-id", "t", "", false, "2026-02-26", "2026-02-26")
-		mock.ExpectQuery("SELECT id, title, note, done, created_at, updated_at").WillReturnRows(rows)
+		rows := sqlmock.NewRows([]string{"id", "owner_user_id", "title", "note", "done", "created_at", "updated_at"}).
+			AddRow("bad-id", int64(1), "t", "", false, "2026-02-26", "2026-02-26")
+		mock.ExpectQuery("SELECT id, owner_user_id, title, note, done, created_at, updated_at").WillReturnRows(rows)
 
 		if _, err := repo.List(context.Background()); err == nil || !strings.Contains(err.Error(), "scan task row") {
 			t.Fatalf("err = %v", err)
@@ -162,10 +162,10 @@ func TestPostgresListAndDeleteErrorBranchesWithSQLMock(t *testing.T) {
 		defer db.Close()
 		repo := &postgresTaskRepository{db: db}
 
-		rows := sqlmock.NewRows([]string{"id", "title", "note", "done", "created_at", "updated_at"}).
-			AddRow(int64(1), "t", "", false, "2026-02-26T00:00:00Z", "2026-02-26T00:00:00Z").
+		rows := sqlmock.NewRows([]string{"id", "owner_user_id", "title", "note", "done", "created_at", "updated_at"}).
+			AddRow(int64(1), int64(1), "t", "", false, "2026-02-26T00:00:00Z", "2026-02-26T00:00:00Z").
 			RowError(0, errors.New("row iter failed"))
-		mock.ExpectQuery("SELECT id, title, note, done, created_at, updated_at").WillReturnRows(rows)
+		mock.ExpectQuery("SELECT id, owner_user_id, title, note, done, created_at, updated_at").WillReturnRows(rows)
 
 		if _, err := repo.List(context.Background()); err == nil || !strings.Contains(err.Error(), "iterate task rows") {
 			t.Fatalf("err = %v", err)

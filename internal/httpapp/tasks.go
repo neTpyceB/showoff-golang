@@ -30,18 +30,20 @@ type memoryTaskRepository struct {
 }
 
 type task struct {
-	ID        int64
-	Title     string
-	Note      string
-	Done      bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID          int64
+	OwnerUserID int64
+	Title       string
+	Note        string
+	Done        bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type taskInput struct {
-	Title string `json:"title"`
-	Note  string `json:"note"`
-	Done  bool   `json:"done"`
+	OwnerUserID int64  `json:"-"`
+	Title       string `json:"title"`
+	Note        string `json:"note"`
+	Done        bool   `json:"done"`
 }
 
 type taskResponse struct {
@@ -73,6 +75,11 @@ func newMemoryTaskRepository() *memoryTaskRepository {
 }
 
 func (a *taskAPI) listTasks(w http.ResponseWriter, r *http.Request) {
+	uid, role, ok := authPrincipalFromContext(r.Context())
+	if !ok {
+		respondErrorJSON(w, r, http.StatusUnauthorized, apiError{Code: "unauthorized", Message: "authentication required"})
+		return
+	}
 	tasks, err := a.repo.List(r.Context())
 	if err != nil {
 		respondInternalServerError(w, r)
@@ -80,12 +87,20 @@ func (a *taskAPI) listTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]taskResponse, 0, len(tasks))
 	for _, t := range tasks {
+		if role != "admin" && t.OwnerUserID != uid {
+			continue
+		}
 		items = append(items, toTaskResponse(t))
 	}
 	respondJSON(w, r, http.StatusOK, map[string]any{"tasks": items})
 }
 
 func (a *taskAPI) createTask(w http.ResponseWriter, r *http.Request) {
+	uid, _, ok := authPrincipalFromContext(r.Context())
+	if !ok {
+		respondErrorJSON(w, r, http.StatusUnauthorized, apiError{Code: "unauthorized", Message: "authentication required"})
+		return
+	}
 	var in taskInput
 	if err := decodeJSONBody(r, &in); err != nil {
 		respondErrorJSON(w, r, http.StatusBadRequest, apiError{
@@ -96,6 +111,7 @@ func (a *taskAPI) createTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	in.Title = strings.TrimSpace(in.Title)
+	in.OwnerUserID = uid
 	if fields := validateTaskInput(in); len(fields) > 0 {
 		respondErrorJSON(w, r, http.StatusBadRequest, apiError{
 			Code:    "validation_error",
@@ -114,6 +130,11 @@ func (a *taskAPI) createTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *taskAPI) getTask(w http.ResponseWriter, r *http.Request) {
+	uid, role, ok := authPrincipalFromContext(r.Context())
+	if !ok {
+		respondErrorJSON(w, r, http.StatusUnauthorized, apiError{Code: "unauthorized", Message: "authentication required"})
+		return
+	}
 	id, ok := parseTaskID(w, r)
 	if !ok {
 		return
@@ -123,10 +144,19 @@ func (a *taskAPI) getTask(w http.ResponseWriter, r *http.Request) {
 		respondTaskRepositoryError(w, r, err)
 		return
 	}
+	if role != "admin" && t.OwnerUserID != uid {
+		respondErrorJSON(w, r, http.StatusForbidden, apiError{Code: "forbidden", Message: "task access denied"})
+		return
+	}
 	respondJSON(w, r, http.StatusOK, map[string]any{"task": toTaskResponse(t)})
 }
 
 func (a *taskAPI) updateTask(w http.ResponseWriter, r *http.Request) {
+	uid, role, ok := authPrincipalFromContext(r.Context())
+	if !ok {
+		respondErrorJSON(w, r, http.StatusUnauthorized, apiError{Code: "unauthorized", Message: "authentication required"})
+		return
+	}
 	id, ok := parseTaskID(w, r)
 	if !ok {
 		return
@@ -151,6 +181,16 @@ func (a *taskAPI) updateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	current, err := a.repo.Get(r.Context(), id)
+	if err != nil {
+		respondTaskRepositoryError(w, r, err)
+		return
+	}
+	if role != "admin" && current.OwnerUserID != uid {
+		respondErrorJSON(w, r, http.StatusForbidden, apiError{Code: "forbidden", Message: "task access denied"})
+		return
+	}
+
 	updated, err := a.repo.Update(r.Context(), id, in, nowFn().UTC())
 	if err != nil {
 		respondTaskRepositoryError(w, r, err)
@@ -160,8 +200,22 @@ func (a *taskAPI) updateTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *taskAPI) deleteTask(w http.ResponseWriter, r *http.Request) {
+	uid, role, ok := authPrincipalFromContext(r.Context())
+	if !ok {
+		respondErrorJSON(w, r, http.StatusUnauthorized, apiError{Code: "unauthorized", Message: "authentication required"})
+		return
+	}
 	id, ok := parseTaskID(w, r)
 	if !ok {
+		return
+	}
+	current, err := a.repo.Get(r.Context(), id)
+	if err != nil {
+		respondTaskRepositoryError(w, r, err)
+		return
+	}
+	if role != "admin" && current.OwnerUserID != uid {
+		respondErrorJSON(w, r, http.StatusForbidden, apiError{Code: "forbidden", Message: "task access denied"})
 		return
 	}
 	if err := a.repo.Delete(r.Context(), id); err != nil {
@@ -241,12 +295,13 @@ func (s *memoryTaskRepository) Create(_ context.Context, in taskInput, ts time.T
 	defer s.mu.Unlock()
 
 	t := task{
-		ID:        s.nextID,
-		Title:     in.Title,
-		Note:      in.Note,
-		Done:      in.Done,
-		CreatedAt: ts,
-		UpdatedAt: ts,
+		ID:          s.nextID,
+		OwnerUserID: in.OwnerUserID,
+		Title:       in.Title,
+		Note:        in.Note,
+		Done:        in.Done,
+		CreatedAt:   ts,
+		UpdatedAt:   ts,
 	}
 	s.tasks[t.ID] = t
 	s.nextID++

@@ -3,6 +3,7 @@ package httpapp
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,8 @@ import (
 	"testing"
 	"time"
 )
+
+var taskTestAccessToken string
 
 func TestTasksCRUDFlowAndErrors(t *testing.T) {
 	restoreGlobals(t)
@@ -32,6 +35,8 @@ func TestTasksCRUDFlowAndErrors(t *testing.T) {
 	}
 
 	h := NewHandler()
+	taskTestAccessToken = authTokenForRole(t, h, "user")
+	t.Cleanup(func() { taskTestAccessToken = "" })
 
 	t.Run("list empty", func(t *testing.T) {
 		rec := doRequest(t, h, http.MethodGet, "/tasks", "")
@@ -343,6 +348,9 @@ func doRequest(t *testing.T, h http.Handler, method, path, body string) *httptes
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	if strings.HasPrefix(path, "/tasks") && taskTestAccessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+taskTestAccessToken)
+	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
@@ -406,6 +414,31 @@ func TestRespondErrorJSONSuccessShape(t *testing.T) {
 	if body.Data != nil {
 		t.Fatalf("expected no data in error response, got %#v", body.Data)
 	}
+}
+
+func authTokenForRole(t *testing.T, h http.Handler, role string) string {
+	t.Helper()
+	oldNow := nowFn
+	nowFn = time.Now
+	defer func() { nowFn = oldNow }()
+
+	email := "user@example.com"
+	if role == "admin" {
+		email = "admin@example.com"
+	}
+	rec := doRequest(t, h, http.MethodPost, "/auth/signup", `{"email":"`+email+`","password":"password123","role":"`+role+`"}`)
+	assertStatus(t, rec, http.StatusCreated)
+	var body struct {
+		Data struct {
+			Tokens struct {
+				AccessToken string `json:"access_token"`
+			} `json:"tokens"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(bytes.NewReader(rec.Body.Bytes())).Decode(&body); err != nil {
+		t.Fatalf("decode auth response: %v", err)
+	}
+	return body.Data.Tokens.AccessToken
 }
 
 func TestDecodeJSONBodyUnknownFieldAndNilBody(t *testing.T) {

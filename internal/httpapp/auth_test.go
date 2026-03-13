@@ -80,6 +80,7 @@ func TestAuthValidationAndErrorBranches(t *testing.T) {
 	h := NewHandler()
 
 	assertStatus(t, doRequest(t, h, http.MethodPost, "/auth/signup", `{"email":"bad","password":"short"}`), http.StatusBadRequest)
+	assertStatus(t, doRequest(t, h, http.MethodPost, "/auth/signup", `{"email":"u2@example.com","password":"password123","role":"manager"}`), http.StatusBadRequest)
 	assertStatus(t, doRequest(t, h, http.MethodPost, "/auth/signup", `{"email":"u@example.com","password":"password123"}`), http.StatusCreated)
 	assertStatus(t, doRequest(t, h, http.MethodPost, "/auth/signup", `{"email":"u@example.com","password":"password123"}`), http.StatusConflict)
 	assertStatus(t, doRequest(t, h, http.MethodPost, "/auth/login", `{"email":"u@example.com","password":"bad"}`), http.StatusUnauthorized)
@@ -111,32 +112,32 @@ func TestAuthHelpers(t *testing.T) {
 
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": float64(7), "exp": time.Now().Add(time.Hour).Unix(), "typ": "access"})
 	signed, _ := tok.SignedString(jwtSecret)
-	uid, err := validateAccessToken(signed)
-	if err != nil || uid != 7 {
-		t.Fatalf("uid=%d err=%v", uid, err)
+	uid, role, err := validateAccessToken(signed)
+	if err != nil || uid != 7 || role != "user" {
+		t.Fatalf("uid=%d role=%q err=%v", uid, role, err)
 	}
 
 	badMethod := jwt.NewWithClaims(jwt.SigningMethodHS512, jwt.MapClaims{"sub": float64(7), "exp": time.Now().Add(time.Hour).Unix(), "typ": "access"})
 	badSigned, _ := badMethod.SignedString(jwtSecret)
-	if _, err := validateAccessToken(badSigned); err == nil {
+	if _, _, err := validateAccessToken(badSigned); err == nil {
 		t.Fatal("expected invalid method error")
 	}
 
 	wrongType := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": float64(7), "exp": time.Now().Add(time.Hour).Unix(), "typ": "refresh"})
 	wrongTypeSigned, _ := wrongType.SignedString(jwtSecret)
-	if _, err := validateAccessToken(wrongTypeSigned); err == nil {
+	if _, _, err := validateAccessToken(wrongTypeSigned); err == nil {
 		t.Fatal("expected invalid type")
 	}
 
 	noSub := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"exp": time.Now().Add(time.Hour).Unix(), "typ": "access"})
 	noSubSigned, _ := noSub.SignedString(jwtSecret)
-	if _, err := validateAccessToken(noSubSigned); err == nil {
+	if _, _, err := validateAccessToken(noSubSigned); err == nil {
 		t.Fatal("expected missing sub")
 	}
 
 	strSub := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": "x", "exp": time.Now().Add(time.Hour).Unix(), "typ": "access"})
 	strSubSigned, _ := strSub.SignedString(jwtSecret)
-	if _, err := validateAccessToken(strSubSigned); err == nil {
+	if _, _, err := validateAccessToken(strSubSigned); err == nil {
 		t.Fatal("expected invalid sub type")
 	}
 
@@ -154,12 +155,12 @@ func TestAuthHelpers(t *testing.T) {
 	}
 
 	newTokenStringFn = func() (string, error) { return "", errors.New("token error") }
-	if _, err := a.issueTokens(1); err == nil {
+	if _, err := a.issueTokens(1, "user"); err == nil {
 		t.Fatal("expected token generation error")
 	}
 	newTokenStringFn = func() (string, error) { return "r-ok", nil }
 	jwtSignStringFn = func(*jwt.Token, []byte) (string, error) { return "", errors.New("sign error") }
-	if _, err := a.issueTokens(1); err == nil {
+	if _, err := a.issueTokens(1, "user"); err == nil {
 		t.Fatal("expected sign error")
 	}
 
