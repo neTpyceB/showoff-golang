@@ -25,6 +25,8 @@ var (
 	readFileMigrationsFn = fs.ReadFile
 )
 
+const migrationsAdvisoryLockKey int64 = 884412773
+
 type postgresTaskRepository struct {
 	db *sql.DB
 }
@@ -62,6 +64,13 @@ func (r *postgresTaskRepository) Close() error {
 }
 
 func (r *postgresTaskRepository) runMigrations(ctx context.Context) error {
+	if _, err := r.db.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, migrationsAdvisoryLockKey); err != nil {
+		return fmt.Errorf("acquire migrations advisory lock: %w", err)
+	}
+	defer func() {
+		_, _ = r.db.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, migrationsAdvisoryLockKey)
+	}()
+
 	entries, err := readDirMigrationsFn(postgresMigrationsFS, "migrations")
 	if err != nil {
 		return fmt.Errorf("read migrations dir: %w", err)
