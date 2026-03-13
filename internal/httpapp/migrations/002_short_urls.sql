@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS short_urls (
+    id BIGSERIAL PRIMARY KEY,
+    code VARCHAR(32) NOT NULL UNIQUE,
+    target_url TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);

@@ -31,6 +31,9 @@ func TestPostgresTaskRepositoryIntegrationCRUDAndMigrations(t *testing.T) {
 	if _, err := repo.db.ExecContext(ctx, `TRUNCATE TABLE tasks RESTART IDENTITY`); err != nil {
 		t.Fatalf("truncate tasks: %v", err)
 	}
+	if _, err := repo.db.ExecContext(ctx, `TRUNCATE TABLE short_urls RESTART IDENTITY`); err != nil {
+		t.Fatalf("truncate short_urls: %v", err)
+	}
 
 	items, err := repo.List(ctx)
 	if err != nil {
@@ -97,6 +100,35 @@ func TestPostgresTaskRepositoryIntegrationCRUDAndMigrations(t *testing.T) {
 	// Migrations are idempotent.
 	if err := repo.runMigrations(ctx); err != nil {
 		t.Fatalf("runMigrations second time error: %v", err)
+	}
+
+	shortCreated, err := repo.CreateShortURL(ctx, createShortURLRepositoryInput{
+		Code:      "golang01",
+		TargetURL: "https://go.dev/",
+	}, ts1)
+	if err != nil {
+		t.Fatalf("CreateShortURL error: %v", err)
+	}
+	if shortCreated.ID != 1 || shortCreated.Code != "golang01" {
+		t.Fatalf("short created = %+v", shortCreated)
+	}
+
+	gotShort, err := repo.GetShortURLByCode(ctx, "golang01")
+	if err != nil {
+		t.Fatalf("GetShortURLByCode error: %v", err)
+	}
+	if gotShort.TargetURL != "https://go.dev/" {
+		t.Fatalf("got short url = %+v", gotShort)
+	}
+
+	if _, err := repo.CreateShortURL(ctx, createShortURLRepositoryInput{
+		Code:      "golang01",
+		TargetURL: "https://example.com/",
+	}, ts1); !errors.Is(err, errShortURLCodeConflict) {
+		t.Fatalf("duplicate short url err = %v", err)
+	}
+	if _, err := repo.GetShortURLByCode(ctx, "missing01"); !errors.Is(err, errShortURLNotFound) {
+		t.Fatalf("missing short url err = %v", err)
 	}
 }
 
@@ -170,6 +202,12 @@ func TestPostgresTaskRepositoryMethodErrorBranches(t *testing.T) {
 	}
 	if err := repo.Delete(ctx, 1); err == nil || !strings.Contains(err.Error(), "delete task") {
 		t.Fatalf("Delete err = %v", err)
+	}
+	if _, err := repo.CreateShortURL(ctx, createShortURLRepositoryInput{Code: "a123", TargetURL: "https://example.com"}, time.Now()); err == nil || !strings.Contains(err.Error(), "insert short url") {
+		t.Fatalf("CreateShortURL err = %v", err)
+	}
+	if _, err := repo.GetShortURLByCode(ctx, "a123"); err == nil || !strings.Contains(err.Error(), "select short url") {
+		t.Fatalf("GetShortURLByCode err = %v", err)
 	}
 }
 
