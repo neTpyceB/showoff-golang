@@ -49,6 +49,7 @@ type healthResponse struct {
 var (
 	nowFn          = time.Now
 	loggerPrintfFn = log.Printf
+	requestTimeout = 15 * time.Second
 	requestSeq     uint64
 	newRequestIDFn = func() string {
 		id := atomic.AddUint64(&requestSeq, 1)
@@ -83,7 +84,7 @@ func NewHandlerWithRepositories(taskRepo taskRepository, shortRepo shortURLRepos
 	mux.HandleFunc("GET /short-urls/{code}", shortAPI.getShortURL)
 	mux.HandleFunc("GET /{code}", shortAPI.redirectByCode)
 
-	return withRequestLogging(withRequestID(mux))
+	return withRequestLogging(withRequestTimeout(withRequestID(mux), requestTimeout))
 }
 
 func helloHandler(w http.ResponseWriter, r *http.Request) {
@@ -158,6 +159,18 @@ func withRequestLogging(next http.Handler) http.Handler {
 			durationMs,
 			reqID,
 		)
+	})
+}
+
+func withRequestTimeout(next http.Handler, timeout time.Duration) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if timeout <= 0 {
+			next.ServeHTTP(w, r)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

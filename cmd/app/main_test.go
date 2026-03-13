@@ -2,47 +2,42 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
 
-func TestRunStartsServerWithExpectedAddressAndHandler(t *testing.T) {
+func TestRunReturnsListenError(t *testing.T) {
 	restoreGlobals(t)
 
-	listenAndServe = func(addr string, handler http.Handler) error {
-		if addr != defaultAddr {
-			t.Fatalf("addr = %q, want %q", addr, defaultAddr)
+	serverListenAndServe = func(s *http.Server) error {
+		if s.Addr != defaultAddr {
+			t.Fatalf("addr = %q, want %q", s.Addr, defaultAddr)
 		}
+		if s.Handler == nil {
+			t.Fatal("expected handler")
+		}
+		return errors.New("listen failed")
+	}
 
-		req := httptest.NewRequest(http.MethodGet, "/health", nil)
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
+	signalNotifyContext = func(ctx context.Context, _ ...os.Signal) (context.Context, context.CancelFunc) {
+		return context.WithCancel(ctx)
+	}
 
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-		}
-		if got := rec.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
-			t.Fatalf("content-type = %q", got)
-		}
+	if err := run(); err == nil || !strings.Contains(err.Error(), "listen failed") {
+		t.Fatalf("run() err = %v", err)
+	}
+}
 
-		var payload struct {
-			Data struct {
-				Status string `json:"status"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
-			t.Fatalf("decode json: %v", err)
-		}
-		if payload.Data.Status != "ok" {
-			t.Fatalf("health status = %q", payload.Data.Status)
-		}
+func TestRunReturnsNilWhenServerStopsWithoutError(t *testing.T) {
+	restoreGlobals(t)
 
-		return nil
+	serverListenAndServe = func(_ *http.Server) error { return nil }
+	signalNotifyContext = func(ctx context.Context, _ ...os.Signal) (context.Context, context.CancelFunc) {
+		return context.WithCancel(ctx)
 	}
 
 	if err := run(); err != nil {
@@ -50,22 +45,29 @@ func TestRunStartsServerWithExpectedAddressAndHandler(t *testing.T) {
 	}
 }
 
-func TestRunUsesPostgresHandlerWhenDatabaseURLSet(t *testing.T) {
+func TestRunGracefulShutdownOnSignal(t *testing.T) {
 	restoreGlobals(t)
 	t.Setenv("DATABASE_URL", "postgres://example")
 
 	var (
-		gotURL        string
-		closeCalled   bool
-		factoryCalled bool
-		handlerCalled bool
+		closeCalled    bool
+		shutdownCalled bool
+		factoryCalled  bool
+		signalCancelFn context.CancelFunc
 	)
+
+	signalNotifyContext = func(ctx context.Context, _ ...os.Signal) (context.Context, context.CancelFunc) {
+		cctx, cancel := context.WithCancel(ctx)
+		signalCancelFn = cancel
+		return cctx, cancel
+	}
 
 	newPostgresHandler = func(_ context.Context, databaseURL string) (http.Handler, func() error, error) {
 		factoryCalled = true
-		gotURL = databaseURL
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				handlerCalled = true
+		if databaseURL != "postgres://example" {
+			t.Fatalf("databaseURL = %q", databaseURL)
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusNoContent)
 			}), func() error {
 				closeCalled = true
@@ -73,27 +75,74 @@ func TestRunUsesPostgresHandlerWhenDatabaseURLSet(t *testing.T) {
 			}, nil
 	}
 
-	listenAndServe = func(addr string, handler http.Handler) error {
-		req := httptest.NewRequest(http.MethodGet, "/x", nil)
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-		if rec.Code != http.StatusNoContent {
-			t.Fatalf("status = %d", rec.Code)
+	serverListenAndServe = func(_ *http.Server) error {
+		if signalCancelFn == nil {
+			t.Fatal("signal cancel function not set")
 		}
+		signalCancelFn()
+		return http.ErrServerClosed
+	}
+
+	serverShutdown = func(_ *http.Server, _ context.Context) error {
+		shutdownCalled = true
 		return nil
 	}
 
 	if err := run(); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	if !factoryCalled || gotURL != "postgres://example" {
-		t.Fatalf("factoryCalled=%v gotURL=%q", factoryCalled, gotURL)
+	if !factoryCalled {
+		t.Fatal("expected postgres handler factory call")
 	}
-	if !handlerCalled {
-		t.Fatal("expected postgres-backed handler to run")
+	if !shutdownCalled {
+		t.Fatal("expected shutdown to be called")
 	}
 	if !closeCalled {
 		t.Fatal("expected closeFn to be called")
+	}
+}
+
+func TestRunReturnsShutdownError(t *testing.T) {
+	restoreGlobals(t)
+
+	var signalCancelFn context.CancelFunc
+	signalNotifyContext = func(ctx context.Context, _ ...os.Signal) (context.Context, context.CancelFunc) {
+		cctx, cancel := context.WithCancel(ctx)
+		signalCancelFn = cancel
+		return cctx, cancel
+	}
+
+	serverListenAndServe = func(_ *http.Server) error {
+		signalCancelFn()
+		return http.ErrServerClosed
+	}
+	serverShutdown = func(_ *http.Server, _ context.Context) error {
+		return errors.New("shutdown failed")
+	}
+
+	if err := run(); err == nil || !strings.Contains(err.Error(), "shutdown failed") {
+		t.Fatalf("run() err = %v", err)
+	}
+}
+
+func TestRunReturnsPostShutdownServeError(t *testing.T) {
+	restoreGlobals(t)
+
+	var signalCancelFn context.CancelFunc
+	signalNotifyContext = func(ctx context.Context, _ ...os.Signal) (context.Context, context.CancelFunc) {
+		cctx, cancel := context.WithCancel(ctx)
+		signalCancelFn = cancel
+		return cctx, cancel
+	}
+
+	serverListenAndServe = func(_ *http.Server) error {
+		signalCancelFn()
+		return errors.New("serve failed after signal")
+	}
+	serverShutdown = func(_ *http.Server, _ context.Context) error { return nil }
+
+	if err := run(); err == nil || !strings.Contains(err.Error(), "serve failed after signal") {
+		t.Fatalf("run() err = %v", err)
 	}
 }
 
@@ -113,9 +162,11 @@ func TestRunReturnsPostgresHandlerFactoryError(t *testing.T) {
 func TestMainCallsFatalfWhenRunFails(t *testing.T) {
 	restoreGlobals(t)
 
-	boom := errors.New("boom")
-	listenAndServe = func(string, http.Handler) error {
-		return boom
+	serverListenAndServe = func(_ *http.Server) error {
+		return errors.New("boom")
+	}
+	signalNotifyContext = func(ctx context.Context, _ ...os.Signal) (context.Context, context.CancelFunc) {
+		return context.WithCancel(ctx)
 	}
 
 	var (
@@ -132,7 +183,6 @@ func TestMainCallsFatalfWhenRunFails(t *testing.T) {
 	if !called {
 		t.Fatal("expected fatalf to be called")
 	}
-
 	if !strings.Contains(msg, "server error: boom") {
 		t.Fatalf("fatal message = %q", msg)
 	}
@@ -141,9 +191,15 @@ func TestMainCallsFatalfWhenRunFails(t *testing.T) {
 func TestMainDoesNotCallFatalfWhenRunSucceeds(t *testing.T) {
 	restoreGlobals(t)
 
-	listenAndServe = func(string, http.Handler) error {
-		return nil
+	signalNotifyContext = func(ctx context.Context, _ ...os.Signal) (context.Context, context.CancelFunc) {
+		cctx, cancel := context.WithCancel(ctx)
+		cancel()
+		return cctx, func() {}
 	}
+	serverListenAndServe = func(_ *http.Server) error {
+		return http.ErrServerClosed
+	}
+	serverShutdown = func(_ *http.Server, _ context.Context) error { return nil }
 
 	called := false
 	fatalf = func(string, ...any) {
@@ -160,13 +216,17 @@ func TestMainDoesNotCallFatalfWhenRunSucceeds(t *testing.T) {
 func restoreGlobals(t *testing.T) {
 	t.Helper()
 
-	oldListenAndServe := listenAndServe
 	oldFatalf := fatalf
 	oldNewPostgresHandler := newPostgresHandler
+	oldSignalNotifyContext := signalNotifyContext
+	oldListen := serverListenAndServe
+	oldShutdown := serverShutdown
 
 	t.Cleanup(func() {
-		listenAndServe = oldListenAndServe
 		fatalf = oldFatalf
 		newPostgresHandler = oldNewPostgresHandler
+		signalNotifyContext = oldSignalNotifyContext
+		serverListenAndServe = oldListen
+		serverShutdown = oldShutdown
 	})
 }

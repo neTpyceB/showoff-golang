@@ -215,6 +215,44 @@ func TestWithRequestIDMiddlewareSetsHeaderAndContext(t *testing.T) {
 	}
 }
 
+func TestWithRequestTimeoutSetsDeadline(t *testing.T) {
+	handler := withRequestTimeout(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		deadline, ok := r.Context().Deadline()
+		if !ok {
+			t.Fatal("expected context deadline")
+		}
+		if deadline.IsZero() {
+			t.Fatal("expected non-zero deadline")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}), 50*time.Millisecond)
+
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestWithRequestTimeoutDisabled(t *testing.T) {
+	handler := withRequestTimeout(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := r.Context().Deadline(); ok {
+			t.Fatal("did not expect deadline when timeout disabled")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}), 0)
+
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
 func decodeJSON(t *testing.T, data []byte, out any) {
 	t.Helper()
 	dec := json.NewDecoder(bytes.NewReader(data))
