@@ -71,6 +71,7 @@ func NewHandlerWithTaskRepository(repo taskRepository) http.Handler {
 func NewHandlerWithRepositories(taskRepo taskRepository, shortRepo shortURLRepository) http.Handler {
 	api := newTaskAPIWithRepository(taskRepo)
 	shortAPI := newShortURLAPI(shortRepo)
+	authAPI := newAuthAPI()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /hello", helloHandler)
@@ -82,6 +83,10 @@ func NewHandlerWithRepositories(taskRepo taskRepository, shortRepo shortURLRepos
 	mux.HandleFunc("DELETE /tasks/{id}", api.deleteTask)
 	mux.HandleFunc("POST /short-urls", shortAPI.createShortURL)
 	mux.HandleFunc("GET /short-urls/{code}", shortAPI.getShortURL)
+	mux.HandleFunc("POST /auth/signup", authAPI.signup)
+	mux.HandleFunc("POST /auth/login", authAPI.login)
+	mux.HandleFunc("POST /auth/refresh", authAPI.refresh)
+	mux.Handle("GET /auth/me", authAPI.authMiddleware(http.HandlerFunc(authAPI.me)))
 	mux.HandleFunc("GET /{code}", shortAPI.redirectByCode)
 
 	return withRequestLogging(withRequestTimeout(withRequestID(mux), requestTimeout))

@@ -10,7 +10,7 @@ Docker-first Go project with a production-style repository layout.
 
 Current entrypoint:
 
-- `cmd/app` -> HTTP JSON service (`/hello`, `/health`, `/tasks`, `/short-urls`, `/{code}`)
+- `cmd/app` -> HTTP JSON service (`/hello`, `/health`, `/tasks`, `/short-urls`, `/auth/*`, `/{code}`)
 - `cmd/backupsum` -> CLI backup + checksum tool
 - `cmd/scrapexport` -> CLI web scraper + parser + exporter
 
@@ -33,6 +33,7 @@ Future binaries can be added without refactoring the current app, for example:
 - In-process background worker (pool + retries + dead queue + scheduler)
 - Redis-backed queue worker (list + stream, blocking consume, safe shutdown)
 - Metrics/log collector service (concurrent pipeline + Redis/in-memory aggregates + `/metrics`)
+- Auth service (signup/login/JWT access token/refresh token + auth middleware)
 - HTTP middleware (request ID + request logging)
 - CLI file backup + SHA-256 checksum with JSON report
 - CLI web scraping with parsed fields + CSV/JSON export
@@ -78,6 +79,7 @@ Project doc:
 - [`docs/projects/in-process-job-worker.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/in-process-job-worker.md)
 - [`docs/projects/redis-queue-worker.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/redis-queue-worker.md)
 - [`docs/projects/metrics-log-collector.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/metrics-log-collector.md)
+- [`docs/projects/auth-service-jwt-refresh.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/auth-service-jwt-refresh.md)
 
 Example `/hello` response:
 
