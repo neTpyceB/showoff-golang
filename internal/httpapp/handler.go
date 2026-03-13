@@ -1,12 +1,14 @@
 package httpapp
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -72,6 +74,7 @@ func NewHandlerWithRepositories(taskRepo taskRepository, shortRepo shortURLRepos
 	api := newTaskAPIWithRepository(taskRepo)
 	shortAPI := newShortURLAPI(shortRepo)
 	authAPI := newAuthAPI()
+	chat := newChatHub()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /hello", helloHandler)
@@ -83,6 +86,7 @@ func NewHandlerWithRepositories(taskRepo taskRepository, shortRepo shortURLRepos
 	mux.Handle("DELETE /tasks/{id}", authAPI.authMiddleware(http.HandlerFunc(api.deleteTask)))
 	mux.HandleFunc("POST /short-urls", shortAPI.createShortURL)
 	mux.HandleFunc("GET /short-urls/{code}", shortAPI.getShortURL)
+	mux.HandleFunc("GET /ws/chat", chat.serveWS)
 	mux.HandleFunc("POST /auth/signup", authAPI.signup)
 	mux.HandleFunc("POST /auth/login", authAPI.login)
 	mux.HandleFunc("POST /auth/refresh", authAPI.refresh)
@@ -214,4 +218,18 @@ func (r *statusRecorder) StatusCode() int {
 		return http.StatusOK
 	}
 	return r.status
+}
+
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("hijacker not supported")
+	}
+	return h.Hijack()
+}
+
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
