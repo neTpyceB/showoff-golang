@@ -1,11 +1,13 @@
 package httpapp
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -250,6 +252,39 @@ func TestWithRequestTimeoutDisabled(t *testing.T) {
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+type noHijackWriter struct{ http.ResponseWriter }
+
+type hijackWriter struct {
+	http.ResponseWriter
+	hijacked bool
+	flushed  bool
+}
+
+func (h *hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h.hijacked = true
+	return nil, nil, nil
+}
+
+func (h *hijackWriter) Flush() { h.flushed = true }
+
+func TestStatusRecorderHijackAndFlushBranches(t *testing.T) {
+	base := httptest.NewRecorder()
+	rec := &statusRecorder{ResponseWriter: noHijackWriter{base}}
+	if _, _, err := rec.Hijack(); err == nil {
+		t.Fatal("expected hijack error for non-hijacker writer")
+	}
+
+	hw := &hijackWriter{ResponseWriter: httptest.NewRecorder()}
+	rec = &statusRecorder{ResponseWriter: hw}
+	if _, _, err := rec.Hijack(); err != nil {
+		t.Fatalf("unexpected hijack err: %v", err)
+	}
+	rec.Flush()
+	if !hw.hijacked || !hw.flushed {
+		t.Fatalf("hijacked=%v flushed=%v", hw.hijacked, hw.flushed)
 	}
 }
 

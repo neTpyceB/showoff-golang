@@ -35,6 +35,7 @@ Future binaries can be added without refactoring the current app, for example:
 - Metrics/log collector service (concurrent pipeline + Redis/in-memory aggregates + `/metrics`)
 - Auth service (signup/login/JWT access token/refresh token + auth middleware)
 - Notes API protected by auth + RBAC (roles + ownership checks)
+- Chat/WebSocket server (rooms + broadcast + backpressure + optional auth identity)
 - HTTP middleware (request ID + request logging)
 - CLI file backup + SHA-256 checksum with JSON report
 - CLI web scraping with parsed fields + CSV/JSON export
@@ -82,6 +83,7 @@ Project doc:
 - [`docs/projects/metrics-log-collector.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/metrics-log-collector.md)
 - [`docs/projects/auth-service-jwt-refresh.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/auth-service-jwt-refresh.md)
 - [`docs/projects/notes-rbac.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/notes-rbac.md)
+- [`docs/projects/chat-websocket.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/chat-websocket.md)
 
 Example `/hello` response:
 

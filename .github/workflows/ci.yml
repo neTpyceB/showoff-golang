@@ -24,12 +24,11 @@ jobs:
             exit 1
           fi
 
-      - name: Run tests with coverage
-        run: docker compose run --rm app go test ./... -covermode=count -coverprofile=coverage.out
-
-      - name: Require 100% coverage
+      - name: Run tests with coverage and require 100%
         run: |
           docker compose run --rm app sh -c '
+            rm -f coverage.out
+            go test ./... -count=1 -covermode=count -coverprofile=coverage.out
             COVER=$(go tool cover -func=coverage.out | awk "/^total:/ {print \$3}")
             echo "Total coverage: $COVER"
             test "$COVER" = "100.0%"
