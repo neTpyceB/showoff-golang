@@ -2,6 +2,7 @@ package httpapp
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -181,4 +182,50 @@ func TestChatDefaultRoom(t *testing.T) {
 		t.Fatal("unexpected room")
 	}
 	_ = h
+}
+
+func TestChatWriteLoopReturnsOnWriteError(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	serverConnReady := make(chan *websocket.Conn, 1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		serverConnReady <- conn
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	clientConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial err: %v", err)
+	}
+	serverConn := <-serverConnReady
+	defer serverConn.Close()
+
+	_ = clientConn.Close()
+
+	h := newChatHub()
+	c := &chatClient{
+		conn: clientConn,
+		send: make(chan chatOutgoingMessage, 1),
+		room: "r",
+		user: "u",
+	}
+	c.send <- chatOutgoingMessage{Type: "message", Room: "r", From: "u", Text: "x"}
+	close(c.send)
+
+	done := make(chan struct{})
+	go func() {
+		h.writeLoop(c)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("writeLoop did not return on write error")
+	}
 }
