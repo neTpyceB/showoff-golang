@@ -5,7 +5,7 @@ BEGIN
       EXECUTE 'DROP TYPE public.tasks';
     END IF;
     EXECUTE '
-      CREATE TABLE public.tasks (
+      CREATE TABLE IF NOT EXISTS public.tasks (
         id BIGSERIAL PRIMARY KEY,
         title TEXT NOT NULL,
         note TEXT NOT NULL DEFAULT '''',
