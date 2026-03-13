@@ -4,10 +4,10 @@ run:
 	docker compose up --build app
 
 test:
-	docker compose run --rm app go test ./...
+	docker compose run --rm app go test ./... -count=1
 
 cover:
-	docker compose run --rm app go test ./... -covermode=count -coverprofile=coverage.out
+	docker compose run --rm app go test ./... -count=1 -covermode=count -coverprofile=coverage.out
 	docker compose run --rm app go tool cover -func=coverage.out
 
 build:
