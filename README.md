@@ -34,6 +34,7 @@ Future binaries can be added without refactoring the current app, for example:
 - Redis-backed queue worker (list + stream, blocking consume, safe shutdown)
 - Metrics/log collector service (concurrent pipeline + Redis/in-memory aggregates + `/metrics`)
 - Auth service (signup/login/JWT access token/refresh token + auth middleware)
+- Notes API protected by auth + RBAC (roles + ownership checks)
 - HTTP middleware (request ID + request logging)
 - CLI file backup + SHA-256 checksum with JSON report
 - CLI web scraping with parsed fields + CSV/JSON export
@@ -80,6 +81,7 @@ Project doc:
 - [`docs/projects/redis-queue-worker.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/redis-queue-worker.md)
 - [`docs/projects/metrics-log-collector.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/metrics-log-collector.md)
 - [`docs/projects/auth-service-jwt-refresh.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/auth-service-jwt-refresh.md)
+- [`docs/projects/notes-rbac.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/notes-rbac.md)
 
 Example `/hello` response:
 

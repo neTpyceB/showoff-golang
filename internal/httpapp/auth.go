@@ -17,6 +17,7 @@ import (
 type authContextKey string
 
 const authUserIDContextKey authContextKey = "auth_user_id"
+const authRoleContextKey authContextKey = "auth_role"
 
 const (
 	defaultAccessTTL  = 15 * time.Minute
@@ -43,6 +44,7 @@ type authAPI struct {
 type authUser struct {
 	ID           int64
 	Email        string
+	Role         string
 	PasswordHash string
 	CreatedAt    time.Time
 }
@@ -55,6 +57,7 @@ type refreshTokenSession struct {
 type signupRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	Role     string `json:"role"`
 }
 
 type loginRequest struct {
@@ -95,6 +98,14 @@ func (a *authAPI) signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Email = strings.TrimSpace(strings.ToLower(in.Email))
+	in.Role = strings.TrimSpace(strings.ToLower(in.Role))
+	if in.Role == "" {
+		in.Role = "user"
+	}
+	if in.Role != "user" && in.Role != "admin" {
+		respondErrorJSON(w, r, http.StatusBadRequest, apiError{Code: "validation_error", Message: "request validation failed", Fields: map[string]string{"role": "role must be user or admin"}})
+		return
+	}
 	if fields := validateAuthInput(in.Email, in.Password); len(fields) > 0 {
 		respondErrorJSON(w, r, http.StatusBadRequest, apiError{Code: "validation_error", Message: "request validation failed", Fields: fields})
 		return
@@ -112,13 +123,13 @@ func (a *authAPI) signup(w http.ResponseWriter, r *http.Request) {
 		respondErrorJSON(w, r, http.StatusConflict, apiError{Code: "email_exists", Message: "email already registered"})
 		return
 	}
-	user := authUser{ID: a.nextUserID, Email: in.Email, PasswordHash: string(hash), CreatedAt: nowFn().UTC()}
+	user := authUser{ID: a.nextUserID, Email: in.Email, Role: in.Role, PasswordHash: string(hash), CreatedAt: nowFn().UTC()}
 	a.nextUserID++
 	a.usersByID[user.ID] = user
 	a.usersByMail[user.Email] = user
 	a.mu.Unlock()
 
-	tokens, err := a.issueTokens(user.ID)
+	tokens, err := a.issueTokens(user.ID, user.Role)
 	if err != nil {
 		respondInternalServerError(w, r)
 		return
@@ -146,7 +157,7 @@ func (a *authAPI) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := a.issueTokens(user.ID)
+	tokens, err := a.issueTokens(user.ID, user.Role)
 	if err != nil {
 		respondInternalServerError(w, r)
 		return
@@ -184,7 +195,7 @@ func (a *authAPI) refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := a.issueTokens(session.UserID)
+	tokens, err := a.issueTokens(session.UserID, a.userRoleByID(session.UserID))
 	if err != nil {
 		respondInternalServerError(w, r)
 		return
@@ -215,25 +226,26 @@ func (a *authAPI) authMiddleware(next http.Handler) http.Handler {
 			respondErrorJSON(w, r, http.StatusUnauthorized, apiError{Code: "unauthorized", Message: "missing or invalid authorization header"})
 			return
 		}
-		uid, err := validateAccessToken(tok)
+		uid, role, err := validateAccessToken(tok)
 		if err != nil {
 			respondErrorJSON(w, r, http.StatusUnauthorized, apiError{Code: "unauthorized", Message: "invalid or expired access token"})
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(withAuthUserID(r.Context(), uid)))
+		next.ServeHTTP(w, r.WithContext(withAuthPrincipal(r.Context(), uid, role)))
 	})
 }
 
-func (a *authAPI) issueTokens(userID int64) (authTokensResponse, error) {
+func (a *authAPI) issueTokens(userID int64, role string) (authTokensResponse, error) {
 	now := nowFn().UTC()
 	accessExp := now.Add(defaultAccessTTL)
 	refreshExp := now.Add(defaultRefreshTTL)
 
 	claims := jwt.MapClaims{
-		"sub": userID,
-		"exp": accessExp.Unix(),
-		"iat": now.Unix(),
-		"typ": "access",
+		"sub":  userID,
+		"exp":  accessExp.Unix(),
+		"iat":  now.Unix(),
+		"typ":  "access",
+		"role": role,
 	}
 	accessToken, err := jwtSignStringFn(jwt.NewWithClaims(jwt.SigningMethodHS256, claims), jwtSecret)
 	if err != nil {
@@ -280,7 +292,7 @@ func parseBearerToken(header string) (string, error) {
 	return strings.TrimSpace(parts[1]), nil
 }
 
-func validateAccessToken(raw string) (int64, error) {
+func validateAccessToken(raw string) (int64, string, error) {
 	tok, err := jwt.Parse(raw, func(token *jwt.Token) (any, error) {
 		if token.Method != jwt.SigningMethodHS256 {
 			return nil, errors.New("invalid signing method")
@@ -288,21 +300,25 @@ func validateAccessToken(raw string) (int64, error) {
 		return jwtSecret, nil
 	})
 	if err != nil || !tok.Valid {
-		return 0, errors.New("invalid token")
+		return 0, "", errors.New("invalid token")
 	}
 	claims := tok.Claims.(jwt.MapClaims)
 	if claims["typ"] != "access" {
-		return 0, errors.New("invalid token type")
+		return 0, "", errors.New("invalid token type")
 	}
 	subVal, ok := claims["sub"]
 	if !ok {
-		return 0, errors.New("missing subject")
+		return 0, "", errors.New("missing subject")
+	}
+	role, _ := claims["role"].(string)
+	if role == "" {
+		role = "user"
 	}
 	switch v := subVal.(type) {
 	case float64:
-		return int64(v), nil
+		return int64(v), role, nil
 	default:
-		return 0, errors.New("invalid subject type")
+		return 0, "", errors.New("invalid subject type")
 	}
 }
 
@@ -310,9 +326,43 @@ func withAuthUserID(ctx context.Context, uid int64) context.Context {
 	return context.WithValue(ctx, authUserIDContextKey, uid)
 }
 
+func withAuthPrincipal(ctx context.Context, uid int64, role string) context.Context {
+	return context.WithValue(withAuthUserID(ctx, uid), authRoleContextKey, role)
+}
+
 func authUserIDFromContext(ctx context.Context) (int64, bool) {
 	v, ok := ctx.Value(authUserIDContextKey).(int64)
 	return v, ok
+}
+
+func authRoleFromContext(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(authRoleContextKey).(string)
+	return v, ok
+}
+
+func authPrincipalFromContext(ctx context.Context) (int64, string, bool) {
+	uid, ok := authUserIDFromContext(ctx)
+	if !ok {
+		return 0, "", false
+	}
+	role, ok := authRoleFromContext(ctx)
+	if !ok || role == "" {
+		role = "user"
+	}
+	return uid, role, true
+}
+
+func (a *authAPI) userRoleByID(id int64) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	u, ok := a.usersByID[id]
+	if !ok {
+		return "user"
+	}
+	if u.Role == "" {
+		return "user"
+	}
+	return u.Role
 }
 
 func generateSecureToken() (string, error) {

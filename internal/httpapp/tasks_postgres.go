@@ -103,7 +103,7 @@ func (r *postgresTaskRepository) runMigrations(ctx context.Context) error {
 
 func (r *postgresTaskRepository) List(ctx context.Context) ([]task, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, title, note, done, created_at, updated_at
+		SELECT id, owner_user_id, title, note, done, created_at, updated_at
 		FROM tasks
 		ORDER BY id ASC
 	`)
@@ -115,7 +115,7 @@ func (r *postgresTaskRepository) List(ctx context.Context) ([]task, error) {
 	items := []task{}
 	for rows.Next() {
 		var t task
-		if err := rows.Scan(&t.ID, &t.Title, &t.Note, &t.Done, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.OwnerUserID, &t.Title, &t.Note, &t.Done, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan task row: %w", err)
 		}
 		items = append(items, t)
@@ -129,11 +129,11 @@ func (r *postgresTaskRepository) List(ctx context.Context) ([]task, error) {
 func (r *postgresTaskRepository) Create(ctx context.Context, in taskInput, ts time.Time) (task, error) {
 	var out task
 	err := r.db.QueryRowContext(ctx, `
-		INSERT INTO tasks (title, note, done, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, title, note, done, created_at, updated_at
-	`, in.Title, in.Note, in.Done, ts, ts).Scan(
-		&out.ID, &out.Title, &out.Note, &out.Done, &out.CreatedAt, &out.UpdatedAt,
+		INSERT INTO tasks (owner_user_id, title, note, done, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, owner_user_id, title, note, done, created_at, updated_at
+	`, in.OwnerUserID, in.Title, in.Note, in.Done, ts, ts).Scan(
+		&out.ID, &out.OwnerUserID, &out.Title, &out.Note, &out.Done, &out.CreatedAt, &out.UpdatedAt,
 	)
 	if err != nil {
 		return task{}, fmt.Errorf("insert task: %w", err)
@@ -144,10 +144,10 @@ func (r *postgresTaskRepository) Create(ctx context.Context, in taskInput, ts ti
 func (r *postgresTaskRepository) Get(ctx context.Context, id int64) (task, error) {
 	var out task
 	err := r.db.QueryRowContext(ctx, `
-		SELECT id, title, note, done, created_at, updated_at
+		SELECT id, owner_user_id, title, note, done, created_at, updated_at
 		FROM tasks
 		WHERE id = $1
-	`, id).Scan(&out.ID, &out.Title, &out.Note, &out.Done, &out.CreatedAt, &out.UpdatedAt)
+	`, id).Scan(&out.ID, &out.OwnerUserID, &out.Title, &out.Note, &out.Done, &out.CreatedAt, &out.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return task{}, errTaskNotFound
@@ -163,9 +163,9 @@ func (r *postgresTaskRepository) Update(ctx context.Context, id int64, in taskIn
 		UPDATE tasks
 		SET title = $2, note = $3, done = $4, updated_at = $5
 		WHERE id = $1
-		RETURNING id, title, note, done, created_at, updated_at
+		RETURNING id, owner_user_id, title, note, done, created_at, updated_at
 	`, id, in.Title, in.Note, in.Done, ts).Scan(
-		&out.ID, &out.Title, &out.Note, &out.Done, &out.CreatedAt, &out.UpdatedAt,
+		&out.ID, &out.OwnerUserID, &out.Title, &out.Note, &out.Done, &out.CreatedAt, &out.UpdatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
