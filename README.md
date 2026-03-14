@@ -38,6 +38,7 @@ Future binaries can be added without refactoring the current app, for example:
 - Chat/WebSocket server (rooms + broadcast + backpressure + optional auth identity)
 - File upload/storage service (multipart upload + disk/S3-compatible storage + DB metadata + processing hook)
 - Mini e-commerce backend (products/orders + transactional stock update + payment mock + idempotency keys)
+- Event-driven e-commerce pipeline (outbox + publisher + consumer + retries/DLQ + correlation IDs)
 - HTTP middleware (request ID + request logging)
 - CLI file backup + SHA-256 checksum with JSON report
 - CLI web scraping with parsed fields + CSV/JSON export
@@ -100,6 +101,7 @@ Project doc:
 - [`docs/projects/chat-websocket.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/chat-websocket.md)
 - [`docs/projects/file-upload-storage.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/file-upload-storage.md)
 - [`docs/projects/mini-ecommerce.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/mini-ecommerce.md)
+- [`docs/projects/event-driven-ecommerce-pipeline.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/event-driven-ecommerce-pipeline.md)
 
 Example `/hello` response:
 
@@ -201,12 +203,15 @@ docker compose run --rm app sh
 
 ```bash
 make run
+make run-pipeline
 make test
 make cover
 make build
 make build-all
 make backupsum-build
 make scrapexport-build
+make publisher-build
+make consumer-build
 make fmt
 make shell
 ```

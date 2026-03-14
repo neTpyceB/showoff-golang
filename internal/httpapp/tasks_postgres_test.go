@@ -37,6 +37,9 @@ func TestPostgresTaskRepositoryIntegrationCRUDAndMigrations(t *testing.T) {
 	if _, err := repo.db.ExecContext(ctx, `TRUNCATE TABLE payment_transactions, order_items, orders, idempotency_keys, products RESTART IDENTITY`); err != nil {
 		t.Fatalf("truncate ecommerce tables: %v", err)
 	}
+	if _, err := repo.db.ExecContext(ctx, `TRUNCATE TABLE outbox_events RESTART IDENTITY`); err != nil {
+		t.Fatalf("truncate outbox_events: %v", err)
+	}
 
 	items, err := repo.List(ctx)
 	if err != nil {
@@ -155,6 +158,13 @@ func TestPostgresTaskRepositoryIntegrationCRUDAndMigrations(t *testing.T) {
 	}
 	if o1.Status != "paid" || o1.TotalCents != 10000 || len(o1.Items) != 1 {
 		t.Fatalf("order=%+v", o1)
+	}
+	var outboxCount int
+	if err := repo.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM outbox_events WHERE aggregate_id = $1`, o1.ID).Scan(&outboxCount); err != nil {
+		t.Fatalf("select outbox count err=%v", err)
+	}
+	if outboxCount != 1 {
+		t.Fatalf("outbox_count=%d", outboxCount)
 	}
 	o2, err := repo.CreateOrder(ctx, 99, "idem-1", createOrderInput{
 		Items:         []createOrderItemInput{{ProductID: prod.ID, Quantity: 2}},

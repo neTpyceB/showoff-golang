@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -11,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"showoff-golang/internal/eventpipe"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -419,6 +422,24 @@ func (r *postgresTaskRepository) CreateOrder(ctx context.Context, userID int64, 
 		UPDATE idempotency_keys SET response_order_id = $3 WHERE user_id = $1 AND idempotency_key = $2
 	`, userID, idempotencyKey, orderID); err != nil {
 		return order{}, fmt.Errorf("update idempotency key response order: %w", err)
+	}
+
+	payload, _ := json.Marshal(eventpipe.OrderCreatedEvent{
+		OrderID:        orderID,
+		UserID:         userID,
+		Status:         orderStatus,
+		TotalCents:     total,
+		PaymentStatus:  payment.Status,
+		CorrelationID:  idempotencyKey,
+		OccurredAtRFC9: ts.UTC().Format(time.RFC3339),
+	})
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO outbox_events (
+			aggregate_type, aggregate_id, event_type, payload, trace_id, correlation_id, status, attempts, next_attempt_at, created_at
+		)
+		VALUES ($1, $2, $3, $4::jsonb, $5, $6, 'pending', 0, $7, $7)
+	`, "order", orderID, "order.created", string(payload), "trace-"+idempotencyKey, idempotencyKey, ts); err != nil {
+		return order{}, fmt.Errorf("insert outbox event: %w", err)
 	}
 
 	out, err := r.getOrderTx(ctx, tx, orderID)
