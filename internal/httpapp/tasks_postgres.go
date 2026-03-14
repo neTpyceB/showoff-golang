@@ -262,3 +262,237 @@ func (r *postgresTaskRepository) GetFile(ctx context.Context, id int64) (fileRec
 	}
 	return out, nil
 }
+
+func (r *postgresTaskRepository) CreateProduct(ctx context.Context, in createProductInput, ts time.Time) (product, error) {
+	var out product
+	err := r.db.QueryRowContext(ctx, `
+		INSERT INTO products (name, price_cents, stock_qty, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, name, price_cents, stock_qty, created_at, updated_at
+	`, in.Name, in.PriceCents, in.StockQty, ts, ts).Scan(
+		&out.ID, &out.Name, &out.PriceCents, &out.StockQty, &out.CreatedAt, &out.UpdatedAt,
+	)
+	if err != nil {
+		return product{}, fmt.Errorf("insert product: %w", err)
+	}
+	return out, nil
+}
+
+func (r *postgresTaskRepository) ListProducts(ctx context.Context) ([]product, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, name, price_cents, stock_qty, created_at, updated_at
+		FROM products
+		ORDER BY id ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query products: %w", err)
+	}
+	defer rows.Close()
+	out := []product{}
+	for rows.Next() {
+		var p product
+		if err := rows.Scan(&p.ID, &p.Name, &p.PriceCents, &p.StockQty, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan product row: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate product rows: %w", err)
+	}
+	return out, nil
+}
+
+func (r *postgresTaskRepository) CreateOrder(ctx context.Context, userID int64, idempotencyKey string, in createOrderInput, payments paymentProvider, ts time.Time) (order, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return order{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var inserted bool
+	var existingOrderID sql.NullInt64
+	err = tx.QueryRowContext(ctx, `
+		WITH ins AS (
+			INSERT INTO idempotency_keys (user_id, idempotency_key, created_at)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (user_id, idempotency_key) DO NOTHING
+			RETURNING true AS inserted, response_order_id
+		)
+		SELECT inserted, response_order_id FROM ins
+		UNION ALL
+		SELECT false AS inserted, response_order_id
+		FROM idempotency_keys
+		WHERE user_id = $1 AND idempotency_key = $2 AND NOT EXISTS (SELECT 1 FROM ins)
+		LIMIT 1
+	`, userID, idempotencyKey, ts).Scan(&inserted, &existingOrderID)
+	if err != nil {
+		return order{}, fmt.Errorf("insert idempotency key: %w", err)
+	}
+	if !inserted {
+		if !existingOrderID.Valid {
+			return order{}, errIdempotencyKeyExists
+		}
+		out, err := r.getOrderTx(ctx, tx, existingOrderID.Int64)
+		if err != nil {
+			return order{}, err
+		}
+		if err := tx.Commit(); err != nil {
+			return order{}, fmt.Errorf("commit tx: %w", err)
+		}
+		return out, nil
+	}
+
+	total := int64(0)
+	items := make([]orderItem, 0, len(in.Items))
+	for _, it := range in.Items {
+		if it.Quantity <= 0 {
+			return order{}, errInvalidOrder
+		}
+		var p product
+		err := tx.QueryRowContext(ctx, `
+			SELECT id, name, price_cents, stock_qty, created_at, updated_at
+			FROM products
+			WHERE id = $1
+			FOR UPDATE
+		`, it.ProductID).Scan(&p.ID, &p.Name, &p.PriceCents, &p.StockQty, &p.CreatedAt, &p.UpdatedAt)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return order{}, errProductNotFound
+			}
+			return order{}, fmt.Errorf("select product for update: %w", err)
+		}
+		if p.StockQty < it.Quantity {
+			return order{}, errInsufficientStock
+		}
+		line := p.PriceCents * it.Quantity
+		total += line
+		items = append(items, orderItem{
+			ProductID:      p.ID,
+			Quantity:       it.Quantity,
+			UnitPriceCents: p.PriceCents,
+			LineTotalCents: line,
+		})
+	}
+
+	payment, err := payments.Charge(ctx, total, in.PaymentMethod)
+	if err != nil {
+		return order{}, fmt.Errorf("charge payment: %w", err)
+	}
+	orderStatus := "paid"
+	if payment.Status != "paid" {
+		orderStatus = "payment_failed"
+	}
+
+	var orderID int64
+	if err := tx.QueryRowContext(ctx, `
+		INSERT INTO orders (user_id, status, total_cents, idempotency_key, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id
+	`, userID, orderStatus, total, idempotencyKey, ts, ts).Scan(&orderID); err != nil {
+		return order{}, fmt.Errorf("insert order: %w", err)
+	}
+
+	for _, it := range items {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO order_items (order_id, product_id, quantity, unit_price_cents, line_total_cents)
+			VALUES ($1, $2, $3, $4, $5)
+		`, orderID, it.ProductID, it.Quantity, it.UnitPriceCents, it.LineTotalCents); err != nil {
+			return order{}, fmt.Errorf("insert order item: %w", err)
+		}
+		if orderStatus == "paid" {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE products SET stock_qty = stock_qty - $2, updated_at = $3 WHERE id = $1
+			`, it.ProductID, it.Quantity, ts); err != nil {
+				return order{}, fmt.Errorf("update product stock: %w", err)
+			}
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO payment_transactions (order_id, provider, status, provider_txn_id, amount_cents, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, orderID, "mock", payment.Status, payment.Ref, total, ts); err != nil {
+		return order{}, fmt.Errorf("insert payment transaction: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE idempotency_keys SET response_order_id = $3 WHERE user_id = $1 AND idempotency_key = $2
+	`, userID, idempotencyKey, orderID); err != nil {
+		return order{}, fmt.Errorf("update idempotency key response order: %w", err)
+	}
+
+	out, err := r.getOrderTx(ctx, tx, orderID)
+	if err != nil {
+		return order{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return order{}, fmt.Errorf("commit tx: %w", err)
+	}
+	return out, nil
+}
+
+func (r *postgresTaskRepository) GetOrder(ctx context.Context, id int64) (order, error) {
+	return r.getOrderQuery(ctx, r.db, id)
+}
+
+type orderQueryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func (r *postgresTaskRepository) getOrderTx(ctx context.Context, q orderQueryer, id int64) (order, error) {
+	return r.getOrderQuery(ctx, q, id)
+}
+
+func (r *postgresTaskRepository) getOrderQuery(ctx context.Context, q orderQueryer, id int64) (order, error) {
+	var out order
+	err := q.QueryRowContext(ctx, `
+		SELECT id, user_id, status, total_cents, idempotency_key, created_at, updated_at
+		FROM orders
+		WHERE id = $1
+	`, id).Scan(
+		&out.ID, &out.UserID, &out.Status, &out.TotalCents, &out.IdempotencyKey, &out.CreatedAt, &out.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return order{}, errOrderNotFound
+		}
+		return order{}, fmt.Errorf("select order: %w", err)
+	}
+	rows, err := q.QueryContext(ctx, `
+		SELECT product_id, quantity, unit_price_cents, line_total_cents
+		FROM order_items
+		WHERE order_id = $1
+		ORDER BY id ASC
+	`, id)
+	if err != nil {
+		return order{}, fmt.Errorf("query order items: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var it orderItem
+		if err := rows.Scan(&it.ProductID, &it.Quantity, &it.UnitPriceCents, &it.LineTotalCents); err != nil {
+			return order{}, fmt.Errorf("scan order item row: %w", err)
+		}
+		out.Items = append(out.Items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return order{}, fmt.Errorf("iterate order item rows: %w", err)
+	}
+	var payStatus, payRef string
+	if err := q.QueryRowContext(ctx, `
+		SELECT status, provider_txn_id
+		FROM payment_transactions
+		WHERE order_id = $1
+		ORDER BY id DESC
+		LIMIT 1
+	`, id).Scan(&payStatus, &payRef); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return order{}, fmt.Errorf("select payment transaction: %w", err)
+		}
+	} else {
+		out.PaymentStatus = payStatus
+		out.PaymentRef = payRef
+	}
+	return out, nil
+}
