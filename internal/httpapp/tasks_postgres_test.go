@@ -34,6 +34,9 @@ func TestPostgresTaskRepositoryIntegrationCRUDAndMigrations(t *testing.T) {
 	if _, err := repo.db.ExecContext(ctx, `TRUNCATE TABLE short_urls RESTART IDENTITY`); err != nil {
 		t.Fatalf("truncate short_urls: %v", err)
 	}
+	if _, err := repo.db.ExecContext(ctx, `TRUNCATE TABLE payment_transactions, order_items, orders, idempotency_keys, products RESTART IDENTITY`); err != nil {
+		t.Fatalf("truncate ecommerce tables: %v", err)
+	}
 
 	items, err := repo.List(ctx)
 	if err != nil {
@@ -133,6 +136,66 @@ func TestPostgresTaskRepositoryIntegrationCRUDAndMigrations(t *testing.T) {
 	if _, err := repo.GetShortURLByCode(ctx, "missing01"); !errors.Is(err, errShortURLNotFound) {
 		t.Fatalf("missing short url err = %v", err)
 	}
+
+	// E-commerce happy path + idempotency.
+	prod, err := repo.CreateProduct(ctx, createProductInput{Name: "Keyboard", PriceCents: 5000, StockQty: 5}, ts1)
+	if err != nil {
+		t.Fatalf("CreateProduct err: %v", err)
+	}
+	plist, err := repo.ListProducts(ctx)
+	if err != nil || len(plist) == 0 {
+		t.Fatalf("ListProducts err=%v items=%+v", err, plist)
+	}
+	o1, err := repo.CreateOrder(ctx, 99, "idem-1", createOrderInput{
+		Items:         []createOrderItemInput{{ProductID: prod.ID, Quantity: 2}},
+		PaymentMethod: "pm_ok",
+	}, mockPaymentProvider{}, ts1)
+	if err != nil {
+		t.Fatalf("CreateOrder err: %v", err)
+	}
+	if o1.Status != "paid" || o1.TotalCents != 10000 || len(o1.Items) != 1 {
+		t.Fatalf("order=%+v", o1)
+	}
+	o2, err := repo.CreateOrder(ctx, 99, "idem-1", createOrderInput{
+		Items:         []createOrderItemInput{{ProductID: prod.ID, Quantity: 2}},
+		PaymentMethod: "pm_ok",
+	}, mockPaymentProvider{}, ts1)
+	if err != nil || o2.ID != o1.ID {
+		t.Fatalf("idempotency order=%+v err=%v", o2, err)
+	}
+	gotOrder, err := repo.GetOrder(ctx, o1.ID)
+	if err != nil || gotOrder.ID != o1.ID {
+		t.Fatalf("GetOrder=%+v err=%v", gotOrder, err)
+	}
+
+	oFail, err := repo.CreateOrder(ctx, 99, "idem-fail", createOrderInput{
+		Items:         []createOrderItemInput{{ProductID: prod.ID, Quantity: 1}},
+		PaymentMethod: "pm_fail",
+	}, mockPaymentProvider{}, ts1)
+	if err != nil || oFail.Status != "payment_failed" {
+		t.Fatalf("failed order=%+v err=%v", oFail, err)
+	}
+	if _, err := repo.GetOrder(ctx, 999999); !errors.Is(err, errOrderNotFound) {
+		t.Fatalf("missing order err=%v", err)
+	}
+	if _, err := repo.CreateOrder(ctx, 99, "idem-bad-product", createOrderInput{
+		Items:         []createOrderItemInput{{ProductID: 999999, Quantity: 1}},
+		PaymentMethod: "pm_ok",
+	}, mockPaymentProvider{}, ts1); !errors.Is(err, errProductNotFound) {
+		t.Fatalf("missing product err=%v", err)
+	}
+	if _, err := repo.CreateOrder(ctx, 99, "idem-bad-stock", createOrderInput{
+		Items:         []createOrderItemInput{{ProductID: prod.ID, Quantity: 9999}},
+		PaymentMethod: "pm_ok",
+	}, mockPaymentProvider{}, ts1); !errors.Is(err, errInsufficientStock) {
+		t.Fatalf("stock err=%v", err)
+	}
+	if _, err := repo.CreateOrder(ctx, 99, "idem-bad-qty", createOrderInput{
+		Items:         []createOrderItemInput{{ProductID: prod.ID, Quantity: 0}},
+		PaymentMethod: "pm_ok",
+	}, mockPaymentProvider{}, ts1); !errors.Is(err, errInvalidOrder) {
+		t.Fatalf("qty err=%v", err)
+	}
 }
 
 func TestPostgresTaskRepositoryConstructorAndErrorBranches(t *testing.T) {
@@ -211,6 +274,18 @@ func TestPostgresTaskRepositoryMethodErrorBranches(t *testing.T) {
 	}
 	if _, err := repo.GetShortURLByCode(ctx, "a123"); err == nil || !strings.Contains(err.Error(), "select short url") {
 		t.Fatalf("GetShortURLByCode err = %v", err)
+	}
+	if _, err := repo.CreateProduct(ctx, createProductInput{Name: "x", PriceCents: 1, StockQty: 1}, time.Now()); err == nil || !strings.Contains(err.Error(), "insert product") {
+		t.Fatalf("CreateProduct err = %v", err)
+	}
+	if _, err := repo.ListProducts(ctx); err == nil || !strings.Contains(err.Error(), "query products") {
+		t.Fatalf("ListProducts err = %v", err)
+	}
+	if _, err := repo.CreateOrder(ctx, 1, "x", createOrderInput{}, mockPaymentProvider{}, time.Now()); err == nil || !strings.Contains(err.Error(), "begin tx") {
+		t.Fatalf("CreateOrder err = %v", err)
+	}
+	if _, err := repo.GetOrder(ctx, 1); err == nil || !strings.Contains(err.Error(), "select order") {
+		t.Fatalf("GetOrder err = %v", err)
 	}
 }
 

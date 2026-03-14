@@ -37,6 +37,7 @@ Future binaries can be added without refactoring the current app, for example:
 - Notes API protected by auth + RBAC (roles + ownership checks)
 - Chat/WebSocket server (rooms + broadcast + backpressure + optional auth identity)
 - File upload/storage service (multipart upload + disk/S3-compatible storage + DB metadata + processing hook)
+- Mini e-commerce backend (products/orders + transactional stock update + payment mock + idempotency keys)
 - HTTP middleware (request ID + request logging)
 - CLI file backup + SHA-256 checksum with JSON report
 - CLI web scraping with parsed fields + CSV/JSON export
@@ -98,6 +99,7 @@ Project doc:
 - [`docs/projects/notes-rbac.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/notes-rbac.md)
 - [`docs/projects/chat-websocket.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/chat-websocket.md)
 - [`docs/projects/file-upload-storage.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/file-upload-storage.md)
+- [`docs/projects/mini-ecommerce.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/mini-ecommerce.md)
 
 Example `/hello` response:
 

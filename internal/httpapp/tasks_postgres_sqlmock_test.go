@@ -295,6 +295,331 @@ func TestPostgresListAndDeleteErrorBranchesWithSQLMock(t *testing.T) {
 			t.Fatalf("err=%v", err)
 		}
 	})
+
+	t.Run("list products scan and rows error branches", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock.New: %v", err)
+		}
+		defer db.Close()
+		repo := &postgresTaskRepository{db: db}
+
+		rows := sqlmock.NewRows([]string{"id", "name", "price_cents", "stock_qty", "created_at", "updated_at"}).
+			AddRow("bad-id", "A", int64(100), int64(1), "2026-03-14", "2026-03-14")
+		mock.ExpectQuery("SELECT id, name, price_cents, stock_qty, created_at, updated_at").WillReturnRows(rows)
+		if _, err := repo.ListProducts(context.Background()); err == nil || !strings.Contains(err.Error(), "scan product row") {
+			t.Fatalf("err=%v", err)
+		}
+
+		rows = sqlmock.NewRows([]string{"id", "name", "price_cents", "stock_qty", "created_at", "updated_at"}).
+			AddRow(int64(1), "A", int64(100), int64(1), "2026-03-14T00:00:00Z", "2026-03-14T00:00:00Z").
+			RowError(0, errors.New("row fail"))
+		mock.ExpectQuery("SELECT id, name, price_cents, stock_qty, created_at, updated_at").WillReturnRows(rows)
+		if _, err := repo.ListProducts(context.Background()); err == nil || !strings.Contains(err.Error(), "iterate product rows") {
+			t.Fatalf("err=%v", err)
+		}
+	})
+
+	t.Run("get order query branches", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock.New: %v", err)
+		}
+		defer db.Close()
+		repo := &postgresTaskRepository{db: db}
+
+		mock.ExpectQuery("SELECT id, user_id, status, total_cents, idempotency_key, created_at, updated_at").
+			WithArgs(int64(1)).
+			WillReturnError(sql.ErrNoRows)
+		if _, err := repo.GetOrder(context.Background(), 1); !errors.Is(err, errOrderNotFound) {
+			t.Fatalf("err=%v", err)
+		}
+
+		mock.ExpectQuery("SELECT id, user_id, status, total_cents, idempotency_key, created_at, updated_at").
+			WithArgs(int64(2)).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "status", "total_cents", "idempotency_key", "created_at", "updated_at"}).
+				AddRow(int64(2), int64(7), "paid", int64(100), "k", mustParseRFC3339(t, "2026-03-14T10:00:00Z"), mustParseRFC3339(t, "2026-03-14T10:00:00Z")))
+		mock.ExpectQuery("SELECT product_id, quantity, unit_price_cents, line_total_cents").
+			WithArgs(int64(2)).
+			WillReturnError(errors.New("items query fail"))
+		if _, err := repo.GetOrder(context.Background(), 2); err == nil || !strings.Contains(err.Error(), "query order items") {
+			t.Fatalf("err=%v", err)
+		}
+
+		mock.ExpectQuery("SELECT id, user_id, status, total_cents, idempotency_key, created_at, updated_at").
+			WithArgs(int64(3)).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "status", "total_cents", "idempotency_key", "created_at", "updated_at"}).
+				AddRow(int64(3), int64(7), "paid", int64(100), "k", mustParseRFC3339(t, "2026-03-14T10:00:00Z"), mustParseRFC3339(t, "2026-03-14T10:00:00Z")))
+		mock.ExpectQuery("SELECT product_id, quantity, unit_price_cents, line_total_cents").
+			WithArgs(int64(3)).
+			WillReturnRows(sqlmock.NewRows([]string{"product_id", "quantity", "unit_price_cents", "line_total_cents"}).
+				AddRow("bad", int64(1), int64(100), int64(100)))
+		if _, err := repo.GetOrder(context.Background(), 3); err == nil || !strings.Contains(err.Error(), "scan order item row") {
+			t.Fatalf("err=%v", err)
+		}
+
+		mock.ExpectQuery("SELECT id, user_id, status, total_cents, idempotency_key, created_at, updated_at").
+			WithArgs(int64(4)).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "status", "total_cents", "idempotency_key", "created_at", "updated_at"}).
+				AddRow(int64(4), int64(7), "paid", int64(100), "k", mustParseRFC3339(t, "2026-03-14T10:00:00Z"), mustParseRFC3339(t, "2026-03-14T10:00:00Z")))
+		mock.ExpectQuery("SELECT product_id, quantity, unit_price_cents, line_total_cents").
+			WithArgs(int64(4)).
+			WillReturnRows(sqlmock.NewRows([]string{"product_id", "quantity", "unit_price_cents", "line_total_cents"}).
+				AddRow(int64(1), int64(1), int64(100), int64(100)).
+				RowError(0, errors.New("rows err")))
+		if _, err := repo.GetOrder(context.Background(), 4); err == nil || !strings.Contains(err.Error(), "iterate order item rows") {
+			t.Fatalf("err=%v", err)
+		}
+
+		mock.ExpectQuery("SELECT id, user_id, status, total_cents, idempotency_key, created_at, updated_at").
+			WithArgs(int64(5)).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "status", "total_cents", "idempotency_key", "created_at", "updated_at"}).
+				AddRow(int64(5), int64(7), "paid", int64(100), "k", mustParseRFC3339(t, "2026-03-14T10:00:00Z"), mustParseRFC3339(t, "2026-03-14T10:00:00Z")))
+		mock.ExpectQuery("SELECT product_id, quantity, unit_price_cents, line_total_cents").
+			WithArgs(int64(5)).
+			WillReturnRows(sqlmock.NewRows([]string{"product_id", "quantity", "unit_price_cents", "line_total_cents"}))
+		mock.ExpectQuery("SELECT status, provider_txn_id").
+			WithArgs(int64(5)).
+			WillReturnError(errors.New("payment read fail"))
+		if _, err := repo.GetOrder(context.Background(), 5); err == nil || !strings.Contains(err.Error(), "select payment transaction") {
+			t.Fatalf("err=%v", err)
+		}
+	})
+
+	t.Run("create order conflict and payment error branches", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock.New: %v", err)
+		}
+		defer db.Close()
+		repo := &postgresTaskRepository{db: db}
+		ts := mustParseRFC3339(t, "2026-03-14T10:00:00Z")
+
+		// Existing key without response_order_id => conflict.
+		mock.ExpectBegin()
+		mock.ExpectQuery("WITH ins AS").
+			WithArgs(int64(7), "k", ts).
+			WillReturnRows(sqlmock.NewRows([]string{"inserted", "response_order_id"}).AddRow(false, nil))
+		mock.ExpectRollback()
+		if _, err := repo.CreateOrder(context.Background(), 7, "k", createOrderInput{
+			Items: []createOrderItemInput{{ProductID: 1, Quantity: 1}},
+		}, mockPaymentProvider{}, ts); !errors.Is(err, errIdempotencyKeyExists) {
+			t.Fatalf("err=%v", err)
+		}
+
+		// Payment provider error.
+		mock.ExpectBegin()
+		mock.ExpectQuery("WITH ins AS").
+			WithArgs(int64(7), "k2", ts).
+			WillReturnRows(sqlmock.NewRows([]string{"inserted", "response_order_id"}).AddRow(true, nil))
+		mock.ExpectQuery("SELECT id, name, price_cents, stock_qty, created_at, updated_at").
+			WithArgs(int64(1)).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "price_cents", "stock_qty", "created_at", "updated_at"}).
+				AddRow(int64(1), "A", int64(100), int64(10), ts, ts))
+		mock.ExpectRollback()
+		if _, err := repo.CreateOrder(context.Background(), 7, "k2", createOrderInput{
+			Items: []createOrderItemInput{{ProductID: 1, Quantity: 1}},
+		}, badPaymentProvider{}, ts); err == nil || !strings.Contains(err.Error(), "charge payment") {
+			t.Fatalf("err=%v", err)
+		}
+	})
+
+	t.Run("create order other error branches", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock.New: %v", err)
+		}
+		defer db.Close()
+		repo := &postgresTaskRepository{db: db}
+		ts := mustParseRFC3339(t, "2026-03-14T10:00:00Z")
+
+		// idempotency insert query error
+		mock.ExpectBegin()
+		mock.ExpectQuery("WITH ins AS").WithArgs(int64(7), "a", ts).WillReturnError(errors.New("idem insert fail"))
+		mock.ExpectRollback()
+		if _, err := repo.CreateOrder(context.Background(), 7, "a", createOrderInput{Items: []createOrderItemInput{{ProductID: 1, Quantity: 1}}}, mockPaymentProvider{}, ts); err == nil || !strings.Contains(err.Error(), "insert idempotency key") {
+			t.Fatalf("err=%v", err)
+		}
+
+		// existing order id path with getOrderTx error
+		mock.ExpectBegin()
+		mock.ExpectQuery("WITH ins AS").WithArgs(int64(7), "b", ts).
+			WillReturnRows(sqlmock.NewRows([]string{"inserted", "response_order_id"}).AddRow(false, int64(11)))
+		mock.ExpectQuery("SELECT id, user_id, status, total_cents, idempotency_key, created_at, updated_at").
+			WithArgs(int64(11)).
+			WillReturnError(errors.New("select order fail"))
+		mock.ExpectRollback()
+		if _, err := repo.CreateOrder(context.Background(), 7, "b", createOrderInput{Items: []createOrderItemInput{{ProductID: 1, Quantity: 1}}}, mockPaymentProvider{}, ts); err == nil || !strings.Contains(err.Error(), "select order") {
+			t.Fatalf("err=%v", err)
+		}
+
+		// existing order id path with commit error
+		mock.ExpectBegin()
+		mock.ExpectQuery("WITH ins AS").WithArgs(int64(7), "c", ts).
+			WillReturnRows(sqlmock.NewRows([]string{"inserted", "response_order_id"}).AddRow(false, int64(12)))
+		mock.ExpectQuery("SELECT id, user_id, status, total_cents, idempotency_key, created_at, updated_at").
+			WithArgs(int64(12)).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "status", "total_cents", "idempotency_key", "created_at", "updated_at"}).
+				AddRow(int64(12), int64(7), "paid", int64(100), "c", ts, ts))
+		mock.ExpectQuery("SELECT product_id, quantity, unit_price_cents, line_total_cents").
+			WithArgs(int64(12)).
+			WillReturnRows(sqlmock.NewRows([]string{"product_id", "quantity", "unit_price_cents", "line_total_cents"}))
+		mock.ExpectQuery("SELECT status, provider_txn_id").
+			WithArgs(int64(12)).
+			WillReturnError(sql.ErrNoRows)
+		mock.ExpectCommit().WillReturnError(errors.New("commit fail"))
+		if _, err := repo.CreateOrder(context.Background(), 7, "c", createOrderInput{Items: []createOrderItemInput{{ProductID: 1, Quantity: 1}}}, mockPaymentProvider{}, ts); err == nil || !strings.Contains(err.Error(), "commit tx") {
+			t.Fatalf("err=%v", err)
+		}
+
+		// product select generic error
+		mock.ExpectBegin()
+		mock.ExpectQuery("WITH ins AS").WithArgs(int64(7), "d", ts).
+			WillReturnRows(sqlmock.NewRows([]string{"inserted", "response_order_id"}).AddRow(true, nil))
+		mock.ExpectQuery("SELECT id, name, price_cents, stock_qty, created_at, updated_at").
+			WithArgs(int64(1)).
+			WillReturnError(errors.New("product query fail"))
+		mock.ExpectRollback()
+		if _, err := repo.CreateOrder(context.Background(), 7, "d", createOrderInput{Items: []createOrderItemInput{{ProductID: 1, Quantity: 1}}}, mockPaymentProvider{}, ts); err == nil || !strings.Contains(err.Error(), "select product for update") {
+			t.Fatalf("err=%v", err)
+		}
+
+		// insert order error
+		mock.ExpectBegin()
+		mock.ExpectQuery("WITH ins AS").WithArgs(int64(7), "e", ts).
+			WillReturnRows(sqlmock.NewRows([]string{"inserted", "response_order_id"}).AddRow(true, nil))
+		mock.ExpectQuery("SELECT id, name, price_cents, stock_qty, created_at, updated_at").
+			WithArgs(int64(1)).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "price_cents", "stock_qty", "created_at", "updated_at"}).
+				AddRow(int64(1), "A", int64(100), int64(10), ts, ts))
+		mock.ExpectQuery("INSERT INTO orders").WillReturnError(errors.New("insert order fail"))
+		mock.ExpectRollback()
+		if _, err := repo.CreateOrder(context.Background(), 7, "e", createOrderInput{Items: []createOrderItemInput{{ProductID: 1, Quantity: 1}}}, mockPaymentProvider{}, ts); err == nil || !strings.Contains(err.Error(), "insert order") {
+			t.Fatalf("err=%v", err)
+		}
+
+		// insert order item error
+		mock.ExpectBegin()
+		mock.ExpectQuery("WITH ins AS").WithArgs(int64(7), "f", ts).
+			WillReturnRows(sqlmock.NewRows([]string{"inserted", "response_order_id"}).AddRow(true, nil))
+		mock.ExpectQuery("SELECT id, name, price_cents, stock_qty, created_at, updated_at").
+			WithArgs(int64(1)).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "price_cents", "stock_qty", "created_at", "updated_at"}).
+				AddRow(int64(1), "A", int64(100), int64(10), ts, ts))
+		mock.ExpectQuery("INSERT INTO orders").
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(33)))
+		mock.ExpectExec("INSERT INTO order_items").WillReturnError(errors.New("insert item fail"))
+		mock.ExpectRollback()
+		if _, err := repo.CreateOrder(context.Background(), 7, "f", createOrderInput{Items: []createOrderItemInput{{ProductID: 1, Quantity: 1}}}, mockPaymentProvider{}, ts); err == nil || !strings.Contains(err.Error(), "insert order item") {
+			t.Fatalf("err=%v", err)
+		}
+
+		// stock update error
+		mock.ExpectBegin()
+		mock.ExpectQuery("WITH ins AS").WithArgs(int64(7), "g", ts).
+			WillReturnRows(sqlmock.NewRows([]string{"inserted", "response_order_id"}).AddRow(true, nil))
+		mock.ExpectQuery("SELECT id, name, price_cents, stock_qty, created_at, updated_at").
+			WithArgs(int64(1)).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "price_cents", "stock_qty", "created_at", "updated_at"}).
+				AddRow(int64(1), "A", int64(100), int64(10), ts, ts))
+		mock.ExpectQuery("INSERT INTO orders").
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(34)))
+		mock.ExpectExec("INSERT INTO order_items").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("UPDATE products SET stock_qty").WillReturnError(errors.New("stock fail"))
+		mock.ExpectRollback()
+		if _, err := repo.CreateOrder(context.Background(), 7, "g", createOrderInput{Items: []createOrderItemInput{{ProductID: 1, Quantity: 1}}}, mockPaymentProvider{}, ts); err == nil || !strings.Contains(err.Error(), "update product stock") {
+			t.Fatalf("err=%v", err)
+		}
+
+		// payment insert error
+		mock.ExpectBegin()
+		mock.ExpectQuery("WITH ins AS").WithArgs(int64(7), "h", ts).
+			WillReturnRows(sqlmock.NewRows([]string{"inserted", "response_order_id"}).AddRow(true, nil))
+		mock.ExpectQuery("SELECT id, name, price_cents, stock_qty, created_at, updated_at").
+			WithArgs(int64(1)).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "price_cents", "stock_qty", "created_at", "updated_at"}).
+				AddRow(int64(1), "A", int64(100), int64(10), ts, ts))
+		mock.ExpectQuery("INSERT INTO orders").
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(35)))
+		mock.ExpectExec("INSERT INTO order_items").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("UPDATE products SET stock_qty").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("INSERT INTO payment_transactions").WillReturnError(errors.New("payment insert fail"))
+		mock.ExpectRollback()
+		if _, err := repo.CreateOrder(context.Background(), 7, "h", createOrderInput{Items: []createOrderItemInput{{ProductID: 1, Quantity: 1}}}, mockPaymentProvider{}, ts); err == nil || !strings.Contains(err.Error(), "insert payment transaction") {
+			t.Fatalf("err=%v", err)
+		}
+
+		// idempotency update error
+		mock.ExpectBegin()
+		mock.ExpectQuery("WITH ins AS").WithArgs(int64(7), "i", ts).
+			WillReturnRows(sqlmock.NewRows([]string{"inserted", "response_order_id"}).AddRow(true, nil))
+		mock.ExpectQuery("SELECT id, name, price_cents, stock_qty, created_at, updated_at").
+			WithArgs(int64(1)).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "price_cents", "stock_qty", "created_at", "updated_at"}).
+				AddRow(int64(1), "A", int64(100), int64(10), ts, ts))
+		mock.ExpectQuery("INSERT INTO orders").
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(36)))
+		mock.ExpectExec("INSERT INTO order_items").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("UPDATE products SET stock_qty").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("INSERT INTO payment_transactions").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("UPDATE idempotency_keys SET response_order_id").WillReturnError(errors.New("idem update fail"))
+		mock.ExpectRollback()
+		if _, err := repo.CreateOrder(context.Background(), 7, "i", createOrderInput{Items: []createOrderItemInput{{ProductID: 1, Quantity: 1}}}, mockPaymentProvider{}, ts); err == nil || !strings.Contains(err.Error(), "update idempotency key response order") {
+			t.Fatalf("err=%v", err)
+		}
+
+		// getOrderTx error after successful writes
+		mock.ExpectBegin()
+		mock.ExpectQuery("WITH ins AS").WithArgs(int64(7), "j", ts).
+			WillReturnRows(sqlmock.NewRows([]string{"inserted", "response_order_id"}).AddRow(true, nil))
+		mock.ExpectQuery("SELECT id, name, price_cents, stock_qty, created_at, updated_at").
+			WithArgs(int64(1)).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "price_cents", "stock_qty", "created_at", "updated_at"}).
+				AddRow(int64(1), "A", int64(100), int64(10), ts, ts))
+		mock.ExpectQuery("INSERT INTO orders").
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(37)))
+		mock.ExpectExec("INSERT INTO order_items").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("UPDATE products SET stock_qty").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("INSERT INTO payment_transactions").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("UPDATE idempotency_keys SET response_order_id").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectQuery("SELECT id, user_id, status, total_cents, idempotency_key, created_at, updated_at").
+			WithArgs(int64(37)).
+			WillReturnError(errors.New("reload order fail"))
+		mock.ExpectRollback()
+		if _, err := repo.CreateOrder(context.Background(), 7, "j", createOrderInput{Items: []createOrderItemInput{{ProductID: 1, Quantity: 1}}}, mockPaymentProvider{}, ts); err == nil || !strings.Contains(err.Error(), "select order") {
+			t.Fatalf("err=%v", err)
+		}
+
+		// commit error after successful reload
+		mock.ExpectBegin()
+		mock.ExpectQuery("WITH ins AS").WithArgs(int64(7), "k", ts).
+			WillReturnRows(sqlmock.NewRows([]string{"inserted", "response_order_id"}).AddRow(true, nil))
+		mock.ExpectQuery("SELECT id, name, price_cents, stock_qty, created_at, updated_at").
+			WithArgs(int64(1)).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "price_cents", "stock_qty", "created_at", "updated_at"}).
+				AddRow(int64(1), "A", int64(100), int64(10), ts, ts))
+		mock.ExpectQuery("INSERT INTO orders").
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(38)))
+		mock.ExpectExec("INSERT INTO order_items").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("UPDATE products SET stock_qty").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("INSERT INTO payment_transactions").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("UPDATE idempotency_keys SET response_order_id").WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectQuery("SELECT id, user_id, status, total_cents, idempotency_key, created_at, updated_at").
+			WithArgs(int64(38)).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "status", "total_cents", "idempotency_key", "created_at", "updated_at"}).
+				AddRow(int64(38), int64(7), "paid", int64(100), "k", ts, ts))
+		mock.ExpectQuery("SELECT product_id, quantity, unit_price_cents, line_total_cents").
+			WithArgs(int64(38)).
+			WillReturnRows(sqlmock.NewRows([]string{"product_id", "quantity", "unit_price_cents", "line_total_cents"}).
+				AddRow(int64(1), int64(1), int64(100), int64(100)))
+		mock.ExpectQuery("SELECT status, provider_txn_id").
+			WithArgs(int64(38)).
+			WillReturnRows(sqlmock.NewRows([]string{"status", "provider_txn_id"}).AddRow("paid", "ref"))
+		mock.ExpectCommit().WillReturnError(errors.New("commit fail final"))
+		if _, err := repo.CreateOrder(context.Background(), 7, "k", createOrderInput{Items: []createOrderItemInput{{ProductID: 1, Quantity: 1}}}, mockPaymentProvider{}, ts); err == nil || !strings.Contains(err.Error(), "commit tx") {
+			t.Fatalf("err=%v", err)
+		}
+	})
 }
 
 type fakeMigrationDirEntry struct {

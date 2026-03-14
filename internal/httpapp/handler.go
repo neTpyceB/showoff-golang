@@ -76,6 +76,7 @@ func NewHandlerWithRepositories(taskRepo taskRepository, shortRepo shortURLRepos
 	authAPI := newAuthAPI()
 	chat := newChatHub()
 	fileAPI := newFileAPI(castFileRepositoryOrMemory(taskRepo), newBlobStorageFromEnv(), noopFileProcessingHook{})
+	ecomAPI := newEcommerceAPI(castEcommerceRepositoryOrMemory(taskRepo), mockPaymentProvider{})
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /hello", helloHandler)
@@ -87,6 +88,10 @@ func NewHandlerWithRepositories(taskRepo taskRepository, shortRepo shortURLRepos
 	mux.Handle("DELETE /tasks/{id}", authAPI.authMiddleware(http.HandlerFunc(api.deleteTask)))
 	mux.HandleFunc("POST /short-urls", shortAPI.createShortURL)
 	mux.HandleFunc("GET /short-urls/{code}", shortAPI.getShortURL)
+	mux.Handle("POST /products", authAPI.authMiddleware(http.HandlerFunc(ecomAPI.createProduct)))
+	mux.HandleFunc("GET /products", ecomAPI.listProducts)
+	mux.Handle("POST /orders", authAPI.authMiddleware(http.HandlerFunc(ecomAPI.createOrder)))
+	mux.Handle("GET /orders/{id}", authAPI.authMiddleware(http.HandlerFunc(ecomAPI.getOrder)))
 	mux.Handle("POST /files", authAPI.authMiddleware(http.HandlerFunc(fileAPI.upload)))
 	mux.Handle("GET /files/{id}", authAPI.authMiddleware(http.HandlerFunc(fileAPI.getFileMetadata)))
 	mux.HandleFunc("GET /ws/chat", chat.serveWS)
