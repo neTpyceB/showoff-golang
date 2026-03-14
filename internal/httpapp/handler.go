@@ -75,6 +75,7 @@ func NewHandlerWithRepositories(taskRepo taskRepository, shortRepo shortURLRepos
 	shortAPI := newShortURLAPI(shortRepo)
 	authAPI := newAuthAPI()
 	chat := newChatHub()
+	fileAPI := newFileAPI(castFileRepositoryOrMemory(taskRepo), newBlobStorageFromEnv(), noopFileProcessingHook{})
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /hello", helloHandler)
@@ -86,6 +87,8 @@ func NewHandlerWithRepositories(taskRepo taskRepository, shortRepo shortURLRepos
 	mux.Handle("DELETE /tasks/{id}", authAPI.authMiddleware(http.HandlerFunc(api.deleteTask)))
 	mux.HandleFunc("POST /short-urls", shortAPI.createShortURL)
 	mux.HandleFunc("GET /short-urls/{code}", shortAPI.getShortURL)
+	mux.Handle("POST /files", authAPI.authMiddleware(http.HandlerFunc(fileAPI.upload)))
+	mux.Handle("GET /files/{id}", authAPI.authMiddleware(http.HandlerFunc(fileAPI.getFileMetadata)))
 	mux.HandleFunc("GET /ws/chat", chat.serveWS)
 	mux.HandleFunc("POST /auth/signup", authAPI.signup)
 	mux.HandleFunc("POST /auth/login", authAPI.login)

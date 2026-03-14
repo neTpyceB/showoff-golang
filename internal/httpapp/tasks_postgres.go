@@ -225,3 +225,40 @@ func (r *postgresTaskRepository) GetShortURLByCode(ctx context.Context, code str
 	}
 	return out, nil
 }
+
+func (r *postgresTaskRepository) CreateFile(ctx context.Context, in createFileInput, ts time.Time) (fileRecord, error) {
+	var out fileRecord
+	err := r.db.QueryRowContext(ctx, `
+		INSERT INTO uploaded_files (
+			owner_user_id, file_name, content_type, size_bytes, sha256, storage_provider, storage_key, created_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, owner_user_id, file_name, content_type, size_bytes, sha256, storage_provider, storage_key, created_at
+	`, in.OwnerUserID, in.FileName, in.ContentType, in.SizeBytes, in.SHA256, in.StorageProvider, in.StorageKey, ts).Scan(
+		&out.ID, &out.OwnerUserID, &out.FileName, &out.ContentType, &out.SizeBytes,
+		&out.SHA256, &out.StorageProvider, &out.StorageKey, &out.CreatedAt,
+	)
+	if err != nil {
+		return fileRecord{}, fmt.Errorf("insert uploaded file: %w", err)
+	}
+	return out, nil
+}
+
+func (r *postgresTaskRepository) GetFile(ctx context.Context, id int64) (fileRecord, error) {
+	var out fileRecord
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, owner_user_id, file_name, content_type, size_bytes, sha256, storage_provider, storage_key, created_at
+		FROM uploaded_files
+		WHERE id = $1
+	`, id).Scan(
+		&out.ID, &out.OwnerUserID, &out.FileName, &out.ContentType, &out.SizeBytes,
+		&out.SHA256, &out.StorageProvider, &out.StorageKey, &out.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fileRecord{}, errFileNotFound
+		}
+		return fileRecord{}, fmt.Errorf("select uploaded file: %w", err)
+	}
+	return out, nil
+}
