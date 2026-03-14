@@ -36,6 +36,7 @@ Future binaries can be added without refactoring the current app, for example:
 - Auth service (signup/login/JWT access token/refresh token + auth middleware)
 - Notes API protected by auth + RBAC (roles + ownership checks)
 - Chat/WebSocket server (rooms + broadcast + backpressure + optional auth identity)
+- File upload/storage service (multipart upload + disk/S3-compatible storage + DB metadata + processing hook)
 - HTTP middleware (request ID + request logging)
 - CLI file backup + SHA-256 checksum with JSON report
 - CLI web scraping with parsed fields + CSV/JSON export
@@ -71,6 +72,18 @@ curl -X POST http://localhost:8080/short-urls \
 curl -i http://localhost:8080/go-docs
 ```
 
+Upload a file:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/auth/signup \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"files@example.com","password":"StrongPass123!"}' | jq -r '.data.access_token')
+
+curl -X POST http://localhost:8080/files \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@./README.md"
+```
+
 Project doc:
 
 - [`docs/projects/http-hello-health.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/http-hello-health.md)
@@ -84,6 +97,7 @@ Project doc:
 - [`docs/projects/auth-service-jwt-refresh.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/auth-service-jwt-refresh.md)
 - [`docs/projects/notes-rbac.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/notes-rbac.md)
 - [`docs/projects/chat-websocket.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/chat-websocket.md)
+- [`docs/projects/file-upload-storage.md`](/Users/vadimsduboiss/Codebase/showoff-golang/docs/projects/file-upload-storage.md)
 
 Example `/hello` response:
 

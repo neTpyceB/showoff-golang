@@ -227,6 +227,74 @@ func TestPostgresListAndDeleteErrorBranchesWithSQLMock(t *testing.T) {
 			t.Fatalf("err = %v", err)
 		}
 	})
+
+	t.Run("create file and get file branches", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock.New: %v", err)
+		}
+		defer db.Close()
+		repo := &postgresTaskRepository{db: db}
+
+		ts := mustParseRFC3339(t, "2026-03-14T10:00:00Z")
+
+		rows := sqlmock.NewRows([]string{
+			"id", "owner_user_id", "file_name", "content_type", "size_bytes", "sha256", "storage_provider", "storage_key", "created_at",
+		}).AddRow(int64(1), int64(7), "doc.txt", "text/plain", int64(12), strings.Repeat("a", 64), "disk", "k1", ts)
+		mock.ExpectQuery("INSERT INTO uploaded_files").
+			WithArgs(int64(7), "doc.txt", "text/plain", int64(12), strings.Repeat("a", 64), "disk", "k1", ts).
+			WillReturnRows(rows)
+
+		created, err := repo.CreateFile(context.Background(), createFileInput{
+			OwnerUserID:     7,
+			FileName:        "doc.txt",
+			ContentType:     "text/plain",
+			SizeBytes:       12,
+			SHA256:          strings.Repeat("a", 64),
+			StorageProvider: "disk",
+			StorageKey:      "k1",
+		}, ts)
+		if err != nil {
+			t.Fatalf("CreateFile err: %v", err)
+		}
+		if created.ID != 1 || created.OwnerUserID != 7 {
+			t.Fatalf("created=%+v", created)
+		}
+
+		getRows := sqlmock.NewRows([]string{
+			"id", "owner_user_id", "file_name", "content_type", "size_bytes", "sha256", "storage_provider", "storage_key", "created_at",
+		}).AddRow(int64(1), int64(7), "doc.txt", "text/plain", int64(12), strings.Repeat("a", 64), "disk", "k1", ts)
+		mock.ExpectQuery("SELECT id, owner_user_id, file_name, content_type, size_bytes, sha256, storage_provider, storage_key, created_at").
+			WithArgs(int64(1)).
+			WillReturnRows(getRows)
+		got, err := repo.GetFile(context.Background(), 1)
+		if err != nil {
+			t.Fatalf("GetFile err: %v", err)
+		}
+		if got.ID != 1 {
+			t.Fatalf("got=%+v", got)
+		}
+
+		mock.ExpectQuery("SELECT id, owner_user_id, file_name, content_type, size_bytes, sha256, storage_provider, storage_key, created_at").
+			WithArgs(int64(2)).
+			WillReturnError(sql.ErrNoRows)
+		if _, err := repo.GetFile(context.Background(), 2); !errors.Is(err, errFileNotFound) {
+			t.Fatalf("err=%v", err)
+		}
+
+		mock.ExpectQuery("INSERT INTO uploaded_files").
+			WillReturnError(errors.New("insert fail"))
+		if _, err := repo.CreateFile(context.Background(), createFileInput{}, ts); err == nil || !strings.Contains(err.Error(), "insert uploaded file") {
+			t.Fatalf("err=%v", err)
+		}
+
+		mock.ExpectQuery("SELECT id, owner_user_id, file_name, content_type, size_bytes, sha256, storage_provider, storage_key, created_at").
+			WithArgs(int64(3)).
+			WillReturnError(errors.New("select fail"))
+		if _, err := repo.GetFile(context.Background(), 3); err == nil || !strings.Contains(err.Error(), "select uploaded file") {
+			t.Fatalf("err=%v", err)
+		}
+	})
 }
 
 type fakeMigrationDirEntry struct {
