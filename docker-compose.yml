@@ -1,4 +1,14 @@
 services:
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
   db:
     image: postgres:18-alpine
     environment:
@@ -20,6 +30,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     working_dir: /workspace
     volumes:
       - ./:/workspace
@@ -28,4 +40,43 @@ services:
     environment:
       DATABASE_URL: postgres://showoff:showoff@db:5432/showoff?sslmode=disable
       TEST_DATABASE_URL: postgres://showoff:showoff@db:5432/showoff?sslmode=disable
+      REDIS_ADDR: redis:6379
     command: air -c .air.toml
+
+  outbox-publisher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    environment:
+      DATABASE_URL: postgres://showoff:showoff@db:5432/showoff?sslmode=disable
+      REDIS_ADDR: redis:6379
+      EVENT_STREAM: orders.events
+    command: go run ./cmd/outboxpublisher
+
+  event-consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    environment:
+      DATABASE_URL: postgres://showoff:showoff@db:5432/showoff?sslmode=disable
+      REDIS_ADDR: redis:6379
+      EVENT_STREAM: orders.events
+      EVENT_CONSUMER_GROUP: orders-consumers
+      EVENT_CONSUMER_NAME: consumer-1
+    command: go run ./cmd/eventconsumer
